@@ -50,6 +50,19 @@ Drive it with `omp list`, `omp enable <plugin>`, `omp theme <t>`.
 Plugins register on precmd/chpwd hooks; writing your own is ~20
 lines of psh.
 
+Antep Mode in the wild — the git segment catching a tree going
+dirty:
+
+![touch a file and the ✗ dirty marker appears](docs/screenshots/dirty-stage.png)
+
+a venv activating itself on `cd` in (and deactivating on `cd` out):
+
+![cd into a project and its venv activates, ⌁ segment appears](docs/screenshots/venv-discovery.png)
+
+and shell-shock keeping morale up after a typo:
+
+![a typo gets a flavor line, XIRT!, and a red 127 status segment](docs/screenshots/xirt.png)
+
 ## Build & run
 
 ```sh

@@ -139,6 +139,7 @@ readline requires a GPL-compatible choice).
       programs; 2000 inputs, zero crashes; knows the difference
       between a crash and an honest infinite loop
 - [x] man page (docs/psh.1), installed by `make install`
-- [ ] Antep Mode screenshots for the README (needs a human with a
-      terminal that has good taste)
+- [x] Antep Mode screenshots for the README (a human with a terminal
+      that has good taste delivered three: dirty marker, venv
+      auto-activation, XIRT — docs/screenshots/)
 - [ ] Packaging: deb / AUR (when there's a public repo to point at)
