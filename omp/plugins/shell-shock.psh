@@ -1,11 +1,13 @@
 # shell-shock — the legendary plugin from the founding documents:
 # "Səhv kod yazanda XIRT səsi çıxaran plagin."
-# omp_precmd is the hook psh runs before every prompt; the XIRT
-# fires exactly once, right after a command fails.
+# Registers on the precmd hook; $__OMP_STATUS carries the last
+# command's status (captured by the dispatcher before anything else
+# could overwrite it).
 
-omp_precmd() {
-    __OMP_S=$?
-    if [ $__OMP_S != 0 ]; then
-        echo "🫛 XIRT! (exit $__OMP_S)"
+__omp_shellshock_precmd() {
+    if [ "$__OMP_STATUS" != "0" ]; then
+        echo "🫛 XIRT! (exit $__OMP_STATUS)"
     fi
 }
+
+omp_hook_precmd __omp_shellshock_precmd

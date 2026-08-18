@@ -194,6 +194,18 @@ static bool is_name(const char *s)
     return true;
 }
 
+/* Function NAMES are laxer than variable names: hyphens welcome
+ * (venv-init, docker-clean), as in bash and zsh. */
+static bool is_funcname(const char *s)
+{
+    if (!isalpha((unsigned char)s[0]) && s[0] != '_')
+        return false;
+    for (size_t i = 1; s[i]; i++)
+        if (!isalnum((unsigned char)s[i]) && s[i] != '_' && s[i] != '-')
+            return false;
+    return true;
+}
+
 static bool word_in(const char *w, const char **set)
 {
     for (size_t i = 0; set[i]; i++)
@@ -628,7 +640,7 @@ static psh_stmt *parse_stmt(P *p)
         return parse_for(p);
     if (at_word(p, "case"))
         return parse_case(p);
-    if (p->cur && p->cur->type == TOK_WORD && is_name(p->cur->text) &&
+    if (p->cur && p->cur->type == TOK_WORD && is_funcname(p->cur->text) &&
         p->cur->next && p->cur->next->type == TOK_LPAREN)
         return parse_funcdef(p);
     return parse_list(p);

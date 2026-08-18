@@ -1,0 +1,8 @@
+# docker — the daily incantations.
+
+dps() { docker ps $@; }
+dim() { docker images $@; }
+dlog() { docker logs -f $1; }
+dex() { docker exec -it $1 sh; }
+dstop() { docker stop $@; }
+dclean() { docker system prune -f; }

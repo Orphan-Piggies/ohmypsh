@@ -1,0 +1,14 @@
+# rails — prefers the project's binstub (bin/rails) when present.
+
+r() {
+    if [ -f bin/rails ]; then
+        bin/rails $@
+    else
+        rails $@
+    fi
+}
+rs() { r server $@; }
+rc() { r console; }
+rg() { r generate $@; }
+rmig() { r db:migrate; }
+rrout() { r routes | grep $1; }

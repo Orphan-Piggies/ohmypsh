@@ -1,0 +1,14 @@
+# npm — run scripts, install things, see the node version.
+
+ni() { npm install $@; }
+nr() { npm run $@; }
+ns() { npm start; }
+nt() { npm test; }
+
+# ⬢ node-version segment for themes that want it (opt-in: add
+# $(__omp_node_prompt) to PSH_PROMPT). Shown only near a package.json.
+__omp_node_prompt() {
+    if [ -f package.json ]; then
+        echo " \e[32m⬢ $(node --version 2> /dev/null)\e[0m"
+    fi
+}

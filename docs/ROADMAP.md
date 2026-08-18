@@ -110,15 +110,21 @@ readline requires a GPL-compatible choice).
       of THIS shell only (children _exit past it; pid-guarded)
 - [x] Parse errors with line numbers in scripts and multi-line input
 
-## H3 — the omp plugin fleet (developer hacks)
-- [ ] `omp` CLI: `omp list`, `omp enable <plugin>`, `omp theme <t>`
-- [ ] `omp_chpwd` hook (fires on directory change; pure psh)
-- [ ] python plugin: venv AUTO-ACTIVATION on cd, venv prompt segment
-- [ ] django/flask: `manage.py` & `flask` shortcuts, runserver helpers
-- [ ] rails: `r*` shortcuts, `bin/rails` detection
-- [ ] docker: ps/logs/exec shortcuts, container-count segment
-- [ ] npm/node: version segment, run-script shortcuts
-- [ ] git plugin v2: dirty-state marker (✗), ahead/behind arrows
+## H3 — the omp plugin fleet ✅ (v0.9.0, pure psh)
+- [x] Hook engine in omp.psh: omp_hook_precmd / omp_hook_chpwd —
+      plugins register instead of overwriting each other;
+      $__OMP_STATUS carries the last status to every hook
+- [x] `omp` CLI: list / enable / theme / reload
+- [x] python: venv AUTO-ACTIVATION — upward .venv search on every
+      directory change, PATH save/restore, ⌁name prompt segment,
+      venv-init
+- [x] django (dj/djrun/djmig/djtest), flask (fl/flrun/flsh)
+- [x] rails (r prefers bin/rails; rs/rc/rg/rmig/rrout)
+- [x] docker (dps/dim/dlog/dex/dstop/dclean)
+- [x] npm (ni/nr/ns/nt) + opt-in ⬢ node-version segment
+- [x] git v2: ✗ dirty marker, ↑ahead ↓behind arrows, ga/gc/gp
+- [x] C bonus: hyphenated function names (venv-init) now parse,
+      as in bash/zsh
 
 ## H4 — the cockpit (parked, revisit after H1–H3)
 - [ ] Hand-rolled raw-mode line editor → fish-style autosuggestions

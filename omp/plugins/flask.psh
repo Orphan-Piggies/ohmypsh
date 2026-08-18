@@ -1,0 +1,5 @@
+# flask — short spells for the microframework.
+
+fl() { flask $@; }
+flrun() { flask run --debug $@; }
+flsh() { flask shell; }

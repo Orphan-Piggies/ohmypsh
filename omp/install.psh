@@ -20,7 +20,7 @@ echo ""                                  >> $HOME/.pshrc
 echo "# 🫛 oh-my-psh"                    >> $HOME/.pshrc
 echo "OMP_DIR=$PWD/omp"                  >> $HOME/.pshrc
 echo "OMP_THEME=antep"                   >> $HOME/.pshrc
-echo 'OMP_PLUGINS="basics git shell-shock"' >> $HOME/.pshrc
+echo 'OMP_PLUGINS="basics git python shell-shock"' >> $HOME/.pshrc
 echo 'source $OMP_DIR/omp.psh'           >> $HOME/.pshrc
 
 echo "[+] Uğurla quraşdırıldı! Sistem indi duzludur."

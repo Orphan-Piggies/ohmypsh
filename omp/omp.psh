@@ -1,13 +1,11 @@
 #!/usr/bin/env psh
 # 🫛 oh-my-psh — the framework that named the shell.
 #
-# This file is written IN psh, running ON psh. The circle is closed.
-#
-# Load it from ~/.pshrc:
+# Written IN psh, running ON psh. Load it from ~/.pshrc:
 #
 #   OMP_DIR=$HOME/Projects/ohmypsh/omp
 #   OMP_THEME=antep
-#   OMP_PLUGINS="basics git shell-shock"
+#   OMP_PLUGINS="basics git python shell-shock"
 #   source $OMP_DIR/omp.psh
 
 if [ "$OMP_DIR" = "" ]; then
@@ -15,14 +13,14 @@ if [ "$OMP_DIR" = "" ]; then
     return 1
 fi
 
-# ---- prompt segments (stubs; plugins and themes build on these) ----
-# Themes may reference any segment without caring which plugins are
-# enabled: the stub prints nothing, a plugin overrides it with life.
+# ---- prompt segments (stubs; plugins override, themes reference) ----
 
 __omp_git_prompt() { true; }
+__omp_venv_prompt() { true; }
+__omp_node_prompt() { true; }
 
-# Red [status] segment when the last command failed. Note the order:
-# capture $? FIRST — the test command itself would overwrite it.
+# Red [status] segment when the last command failed. Capture $? FIRST —
+# the test command itself would overwrite it.
 __omp_status() {
     __OMP_S=$?
     if [ $__OMP_S != 0 ]; then
@@ -30,10 +28,89 @@ __omp_status() {
     fi
 }
 
+# ---- the hook engine ----
+# The shell calls omp_precmd before every prompt. Plugins never define
+# it themselves (they'd overwrite each other); they REGISTER:
+#
+#   omp_hook_precmd my_func     runs before every prompt
+#   omp_hook_chpwd  my_func     runs when the directory changed
+#
+# Hooks read $__OMP_STATUS for the last command's exit status.
+
+OMP_PRECMD_HOOKS=""
+OMP_CHPWD_HOOKS=""
+
+omp_hook_precmd() { OMP_PRECMD_HOOKS="$OMP_PRECMD_HOOKS $1"; }
+omp_hook_chpwd() { OMP_CHPWD_HOOKS="$OMP_CHPWD_HOOKS $1"; }
+
+omp_precmd() {
+    __OMP_STATUS=$?
+    local __omp_h
+    if [ "$PWD" != "$__OMP_PREV_PWD" ]; then
+        __OMP_PREV_PWD=$PWD
+        for __omp_h in $(echo $OMP_CHPWD_HOOKS | tr " " "\n"); do
+            $__omp_h
+        done
+    fi
+    for __omp_h in $(echo $OMP_PRECMD_HOOKS | tr " " "\n"); do
+        $__omp_h
+    done
+}
+
+# ---- the omp CLI ----
+
+omp() {
+    local __omp_f
+    case $1 in
+        list)
+            echo "🫛 themes (active: $OMP_THEME)"
+            for __omp_f in $OMP_DIR/themes/*.psh; do
+                echo "   $(basename $__omp_f .psh)"
+            done
+            echo "🫛 plugins (enabled:$OMP_PLUGINS)"
+            for __omp_f in $OMP_DIR/plugins/*.psh; do
+                echo "   $(basename $__omp_f .psh)"
+            done
+            ;;
+        enable)
+            if [ -f $OMP_DIR/plugins/$2.psh ]; then
+                source $OMP_DIR/plugins/$2.psh
+                OMP_PLUGINS="$OMP_PLUGINS $2"
+                echo "omp: $2 enabled (add to OMP_PLUGINS in ~/.pshrc to keep)"
+            else
+                echo "omp: no such plugin: $2"
+                return 1
+            fi
+            ;;
+        theme)
+            if [ -f $OMP_DIR/themes/$2.psh ]; then
+                source $OMP_DIR/themes/$2.psh
+                OMP_THEME=$2
+                echo "omp: theme is now $2 (set OMP_THEME in ~/.pshrc to keep)"
+            else
+                echo "omp: no such theme: $2"
+                return 1
+            fi
+            ;;
+        reload)
+            OMP_PRECMD_HOOKS=""
+            OMP_CHPWD_HOOKS=""
+            source $OMP_DIR/omp.psh
+            echo "omp: reloaded"
+            ;;
+        *)
+            echo "🫛 oh-my-psh"
+            echo "   omp list             themes and plugins"
+            echo "   omp enable <plugin>  load a plugin now"
+            echo "   omp theme <theme>    switch theme now"
+            echo "   omp reload           re-source the framework"
+            ;;
+    esac
+}
+
 # ---- plugins ----
-# OMP_PLUGINS is space-separated. psh variables never split, so we
-# convert spaces to newlines and let $( ) do the honest, newline-only
-# split. This one line is the psh philosophy in miniature.
+# OMP_PLUGINS is space-separated; variables never split, so convert
+# spaces to newlines and let $( ) do the honest, newline-only split.
 for __omp_p in $(echo $OMP_PLUGINS | tr " " "\n"); do
     if [ -f $OMP_DIR/plugins/$__omp_p.psh ]; then
         source $OMP_DIR/plugins/$__omp_p.psh

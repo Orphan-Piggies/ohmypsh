@@ -1,12 +1,29 @@
-# git — a yellow (branch) in the prompt, plus short spells.
+# git v2 — branch, dirty marker, ahead/behind arrows, short spells.
 
 __omp_git_prompt() {
-    __OMP_B=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
-    if [ "$__OMP_B" != "" ]; then
-        echo " (\e[33m$__OMP_B\e[0m)"
+    local b dirty arrows ab ahead behind
+    b=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
+    if [ "$b" = "" ]; then
+        return 0
     fi
+    dirty=""
+    if [ "$(git status --porcelain 2> /dev/null | head -1)" != "" ]; then
+        dirty="\e[31m✗\e[0m"
+    fi
+    arrows=""
+    ab=$(git rev-list --left-right --count "@{upstream}...HEAD" 2> /dev/null)
+    if [ "$ab" != "" ]; then
+        behind=$(echo $ab | cut -f1)
+        ahead=$(echo $ab | cut -f2)
+        if [ "$ahead" != "0" ]; then arrows="$arrows\e[36m↑$ahead\e[0m"; fi
+        if [ "$behind" != "0" ]; then arrows="$arrows\e[36m↓$behind\e[0m"; fi
+    fi
+    echo " (\e[33m$b\e[0m$dirty$arrows)"
 }
 
 gs() { git status $1; }
 gl() { git log --oneline -15; }
 gd() { git diff $1 $2; }
+ga() { git add $@; }
+gc() { git commit $@; }
+gp() { git push $@; }

@@ -39,11 +39,16 @@ each prompt. Install it into your `~/.pshrc`:
 ./psh omp/install.psh
 ```
 
-Ships with the **antep** theme (maximum green, git branch, red
-failure status) and three plugins: **basics** (`ll`, `la`, `mkcd`),
-**git** (branch in the prompt, `gs`/`gl`/`gd`), and **shell-shock**,
-which — as the founding documents foretold — goes *XIRT!* when a
-command fails.
+Ships with the **antep** theme (maximum green: directory, ⌁venv,
+git branch with ✗ dirty marker and ↑↓ arrows, red failure status)
+and a fleet of plugins: **python** (venvs auto-activate when you cd
+into a project — never type `source .venv/bin/activate` again),
+**git**, **django**, **flask**, **rails**, **docker**, **npm**,
+**basics** (`ll`, `la`, `mkcd`), and **shell-shock**, which — as the
+founding documents foretold — goes *XIRT!* when a command fails.
+Drive it with `omp list`, `omp enable <plugin>`, `omp theme <t>`.
+Plugins register on precmd/chpwd hooks; writing your own is ~20
+lines of psh.
 
 ## Build & run
 

@@ -1,0 +1,51 @@
+# python — venv auto-activation, the fleet's flagship feature.
+#
+# On every directory change, walk UP from $PWD looking for .venv:
+# entering a project (or any subdirectory of it) activates its venv;
+# leaving the project deactivates. No `source .venv/bin/activate`
+# ever again.
+
+__omp_find_venv() {
+    local d
+    d=$PWD
+    while [ "$d" != "/" ]; do
+        if [ -f $d/.venv/bin/activate ]; then
+            echo $d/.venv
+            return 0
+        fi
+        d=$(dirname $d)
+    done
+    return 1
+}
+
+__omp_python_chpwd() {
+    local venv
+    venv=$(__omp_find_venv)
+    if [ "$venv" != "" ]; then
+        if [ "$VIRTUAL_ENV" != "$venv" ]; then
+            if [ "$__OMP_PATH_NOVENV" = "" ]; then
+                __OMP_PATH_NOVENV=$PATH
+            fi
+            export VIRTUAL_ENV=$venv
+            export PATH=$venv/bin:$__OMP_PATH_NOVENV
+            echo "🫛 venv: $(basename $(dirname $venv)) activated"
+        fi
+    else
+        if [ "$VIRTUAL_ENV" != "" ]; then
+            export PATH=$__OMP_PATH_NOVENV
+            unset VIRTUAL_ENV
+            echo "🫛 venv deactivated"
+        fi
+    fi
+}
+
+__omp_venv_prompt() {
+    if [ "$VIRTUAL_ENV" != "" ]; then
+        echo " \e[35m⌁$(basename $(dirname $VIRTUAL_ENV))\e[0m"
+    fi
+}
+
+omp_hook_chpwd __omp_python_chpwd
+
+py() { python3 $@; }
+venv-init() { python3 -m venv .venv && __omp_python_chpwd; }

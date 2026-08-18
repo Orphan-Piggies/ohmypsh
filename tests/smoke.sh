@@ -390,6 +390,41 @@ case "$err" in
     *) printf 'FAIL expected "line 3" in: %s\n' "$err"; fails=$((fails + 1)) ;;
 esac
 
+# ---- H3: the omp plugin fleet ----
+
+OMPD=$PWD/omp
+
+out=$(printf 'venv-init() { echo hyphens; }\nvenv-init\n' | $PSH)
+check "hyphenated function names parse (plugin authors rejoice)" "hyphens" "$out"
+
+mkdir -p "$tmp/proj/.venv/bin" "$tmp/proj/deep/nest"
+touch "$tmp/proj/.venv/bin/activate"
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=python\nsource $OMP_DIR/omp.psh\ncd %s/proj\nomp_precmd\necho A=$(basename $(dirname $VIRTUAL_ENV))\n' "$OMPD" "$tmp" | $PSH)
+check "venv auto-activates on cd into a project" "🫛 venv: proj activated
+A=proj" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=python\nsource $OMP_DIR/omp.psh\ncd %s/proj/deep/nest\nomp_precmd\necho A=$(basename $(dirname $VIRTUAL_ENV))\ncd /\nomp_precmd\necho B=[$VIRTUAL_ENV]\n' "$OMPD" "$tmp" | $PSH | grep -v 'venv:')
+check "venv found from deep subdirs; deactivates on leaving" "A=proj
+🫛 venv deactivated
+B=[]" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS="python shell-shock"\nsource $OMP_DIR/omp.psh\nfalse\nomp_precmd\n' "$OMPD" | $PSH)
+check "hook dispatcher: XIRT rides the shared precmd" "🫛 XIRT! (exit 1)" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=git\nsource $OMP_DIR/omp.psh\nomp enable django > /dev/null\ntype dj\n' "$OMPD" | $PSH)
+check "omp enable loads a plugin live" "dj is a function" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=basics\nsource $OMP_DIR/omp.psh\nomp list\n' "$OMPD" | $PSH | wc -l)
+if [ "$out" -ge 12 ]; then
+    printf 'ok   omp list inventories the whole fleet (%s lines)\n' "$out"
+else
+    printf 'FAIL omp list printed only %s lines\n' "$out"
+    fails=$((fails + 1))
+fi
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=git\nsource $OMP_DIR/omp.psh\nomp theme plain > /dev/null\necho $PSH_PROMPT\n' "$OMPD" | $PSH)
+check "omp theme switches the prompt template" 'psh$(__omp_status) $ ' "$out"
+
 rm -rf "$tmp"
 
 echo

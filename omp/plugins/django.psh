@@ -1,0 +1,7 @@
+# django — manage.py without the typing. $@ forwards untouched.
+
+dj() { python3 manage.py $@; }
+djrun() { dj runserver $@; }
+djsh() { dj shell; }
+djmig() { dj makemigrations && dj migrate; }
+djtest() { dj test $@; }
