@@ -41,6 +41,11 @@ head -1 READM\011\n
 \0033[200~echo pasted\necho again\0033[201~\n
 EDITOR="sed -i s/AAA/BBB/"\n
 echo AAA\0030\0005\n
+echo sugg-target-xyz\n
+echo sugg-t\0033[C\n
+if true; then true; fi\n
+nosuchcmd-qq\n
+echo "ystr"\n
 exit\n
 EOF
 )
@@ -64,6 +69,13 @@ check "paste lands without running"  "$(has '^pasted$')"
 n=$(printf '%s\n' "$out" | grep -ac '^again$')
 check "pasted 2nd line runs on ⏎"    "$([ "$n" = 1 ] && echo yes)"
 check "ctrl-x ctrl-e edits in EDITOR" "$(has '^BBB$')"
+check "autosuggestion painted grey"   "$(has '90marget-xyz')"
+n=$(printf '%s\n' "$out" | grep -ac '^sugg-target-xyz$')
+check "right-arrow accepts suggestion" "$([ "$n" = 2 ] && echo yes)"
+check "valid command painted green"   "$(has '\[32mecho')"
+check "unknown command painted red"   "$(has '\[31mnosuchcmd-qq')"
+check "keyword painted bold"          "$(has '\[1mif')"
+check "string painted yellow"         "$(has '\[33m"ystr"')"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

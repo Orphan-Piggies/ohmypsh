@@ -100,6 +100,8 @@ typedef struct psh_token {
     psh_token_type type;
     char *text; /* TOK_WORD only: the RAW word, quotes/$() intact */
     int line;   /* 1-based line the token starts on (for errors) */
+    size_t pos; /* byte offset of the token's start in the input —
+                   how the cockpit's syntax highlighting finds it */
     struct psh_token *next;
 } psh_token;
 
@@ -235,6 +237,7 @@ typedef int (*psh_builtin_fn)(char **argv);
 psh_builtin_fn psh_find_builtin(const char *name);
 void psh_list_builtins(void);
 const char *psh_builtin_name(size_t i);
+char *psh_path_lookup(const char *name); /* malloc'd full path / NULL */
 
 /* pistachio.c 🫛 */
 void psh_pistachio_hello(void);

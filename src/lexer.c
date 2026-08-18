@@ -26,7 +26,8 @@
 #include "psh.h"
 
 static psh_token *tok_append(psh_token **head, psh_token **tail,
-                             psh_token_type type, char *text, int line)
+                             psh_token_type type, char *text, int line,
+                             size_t pos)
 {
     psh_token *t = malloc(sizeof *t);
     if (!t)
@@ -34,6 +35,7 @@ static psh_token *tok_append(psh_token **head, psh_token **tail,
     t->type = type;
     t->text = text; /* takes ownership */
     t->line = line;
+    t->pos = pos;
     t->next = NULL;
     if (*tail)
         (*tail)->next = t;
@@ -98,7 +100,8 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
             break;
 
         if (*p == '\n') {
-            if (!tok_append(&head, &tail, TOK_NEWLINE, NULL, lineno))
+            if (!tok_append(&head, &tail, TOK_NEWLINE, NULL, lineno,
+                            (size_t)(p - line)))
                 goto oom;
             lineno++;
             p++;
@@ -112,6 +115,8 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                 p++;
             continue;
         }
+
+        size_t tok_start = (size_t)(p - line);
 
         int op = -1;
         if (*p == '&' && p[1] == '&') { op = TOK_AND; p += 2; }
@@ -129,7 +134,7 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
 
         if (op >= 0) {
             if (!tok_append(&head, &tail, (psh_token_type)op, NULL,
-                            lineno))
+                            lineno, tok_start))
                 goto oom;
             continue;
         }
@@ -166,7 +171,8 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
         buf[t] = '\0';
 
         char *word = strdup(buf);
-        if (!word || !tok_append(&head, &tail, TOK_WORD, word, lineno)) {
+        if (!word || !tok_append(&head, &tail, TOK_WORD, word, lineno,
+                                 tok_start)) {
             free(word);
             goto oom;
         }

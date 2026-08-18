@@ -157,8 +157,10 @@ static int bi_source(char **argv)
     return psh_run_file(argv[1]);
 }
 
-/* Find `name` on $PATH; malloc'd full path or NULL. */
-static char *path_lookup(const char *name)
+/* Find `name` on $PATH; malloc'd full path or NULL. Shared: type and
+ * command -v here, and the cockpit's syntax highlighting (editor.c)
+ * asks it whether the command you're typing exists. */
+char *psh_path_lookup(const char *name)
 {
     if (strchr(name, '/'))
         return access(name, X_OK) == 0 ? strdup(name) : NULL;
@@ -189,7 +191,7 @@ static int bi_type(char **argv)
         } else if (psh_find_builtin(argv[i])) {
             printf("%s is a shell builtin\n", argv[i]);
         } else {
-            char *p = path_lookup(argv[i]);
+            char *p = psh_path_lookup(argv[i]);
             if (p) {
                 printf("%s is %s\n", argv[i], p);
                 free(p);
@@ -217,7 +219,7 @@ static int bi_command(char **argv)
         if (psh_function_exists(argv[i]) || psh_find_builtin(argv[i])) {
             puts(argv[i]);
         } else {
-            char *p = path_lookup(argv[i]);
+            char *p = psh_path_lookup(argv[i]);
             if (p) {
                 puts(p);
                 free(p);

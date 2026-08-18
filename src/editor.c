@@ -35,6 +35,7 @@
  */
 #define _XOPEN_SOURCE 700 /* wcwidth */
 
+#include <ctype.h>
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -327,6 +328,7 @@ struct el {
     size_t cur_row;    /* row (within our paint area) cursor is on */
     size_t hist_ix;    /* == hist_n when editing a fresh line */
     char *saved;       /* the fresh line, stashed while browsing */
+    char *sugg;        /* grey autosuggestion tail (H4.3), or NULL */
 };
 
 static void el_ensure(struct el *e, size_t extra)
@@ -363,6 +365,213 @@ static void el_delete(struct el *e, size_t from, size_t to)
     e->buf[e->len] = '\0';
 }
 
+/* ---------------- syntax highlighting (H4.3) ---------------- */
+
+/*
+ * The buffer is colorized by the REAL lexer — no second grammar to
+ * drift out of sync. psh_tokenize gives tokens with byte offsets;
+ * we copy the source verbatim, wrapping token spans in colors:
+ *
+ *   command position   green if it exists (builtin/function/$PATH),
+ *                      red if it doesn't — typos glow before Enter
+ *   keywords           bold (if/then/fi/while/for/case/{...})
+ *   'str' "str"        yellow    $word      cyan    NAME=v   cyan
+ *   # comments         grey (they live between tokens)
+ *
+ * Incomplete input (open quote, open $( ) tokenizes to nothing —
+ * painted plain until it closes. Whole-word granularity, on purpose.
+ */
+#define C_CMD_OK  "\033[32m"
+#define C_CMD_BAD "\033[31m"
+#define C_KEYWORD "\033[1m"
+#define C_STRING  "\033[33m"
+#define C_VAR     "\033[36m"
+#define C_GREY    "\033[90m"
+#define C_OFF     "\033[0m"
+
+static bool is_keyword(const char *w)
+{
+    static const char *kw[] = { "if", "elif", "else", "fi", "then",
+                                "while", "for", "do", "done", "case",
+                                "esac", "in", "{", "}", NULL };
+    for (size_t i = 0; kw[i]; i++)
+        if (strcmp(w, kw[i]) == 0)
+            return true;
+    return false;
+}
+
+static bool is_assignment(const char *w)
+{
+    if (!isalpha((unsigned char)w[0]) && w[0] != '_')
+        return false;
+    size_t i = 1;
+    while (isalnum((unsigned char)w[i]) || w[i] == '_')
+        i++;
+    return w[i] == '=';
+}
+
+/* One-entry cache: repaints outnumber buffer changes. */
+static bool valid_command(const char *name)
+{
+    static char cached[256];
+    static bool cached_ok;
+    if (cached[0] && strcmp(cached, name) == 0)
+        return cached_ok;
+    bool ok = psh_find_builtin(name) || psh_function_exists(name);
+    if (!ok) {
+        char *p = psh_path_lookup(name);
+        ok = p != NULL;
+        free(p);
+    }
+    if (strlen(name) < sizeof cached) {
+        strcpy(cached, name);
+        cached_ok = ok;
+    }
+    return ok;
+}
+
+/* Bytes a token occupied in the source. Words copy 1:1, so text
+ * length is source length; operators know their own width. */
+static size_t tok_srclen(const psh_token *t)
+{
+    switch (t->type) {
+    case TOK_WORD: return strlen(t->text);
+    case TOK_AND: case TOK_OR: case TOK_DSEMI:
+    case TOK_REDIR_APPEND: case TOK_REDIR_ERR: return 2;
+    default: return 1;
+    }
+}
+
+/* Copy the stretch BETWEEN tokens: whitespace, and comments (the
+ * lexer eats those, so a '#' here starts one — grey to gap's end;
+ * a comment can't cross a newline, newlines are tokens). */
+static void put_gap(struct obuf *o, const char *src, size_t a, size_t b)
+{
+    const char *h = b > a ? memchr(src + a, '#', b - a) : NULL;
+    if (!h) {
+        ob_put(o, src + a, b - a);
+        return;
+    }
+    size_t hp = (size_t)(h - src);
+    ob_put(o, src + a, hp - a);
+    ob_str(o, C_GREY);
+    ob_put(o, src + hp, b - hp);
+    ob_str(o, C_OFF);
+}
+
+static char *colorize(const char *src, size_t len)
+{
+    bool err = false, incomplete = false;
+    psh_token *toks = psh_tokenize(src, &err, &incomplete);
+    if (!toks)
+        return NULL; /* blank, incomplete or error: paint plain */
+
+    struct obuf o = { 0 };
+    size_t prev = 0;
+    bool cmdpos = true;
+    int expect_in = 0; /* for/case: a name, then the keyword `in` */
+
+    for (psh_token *t = toks; t; t = t->next) {
+        put_gap(&o, src, prev, t->pos);
+        size_t tl = tok_srclen(t);
+
+        if (t->type == TOK_WORD) {
+            const char *col = NULL;
+            if (t->next && t->next->type == TOK_LPAREN) {
+                col = C_VAR; /* name() — a function being born */
+                cmdpos = false;
+            } else if (cmdpos) {
+                if (is_keyword(t->text)) {
+                    col = C_KEYWORD;
+                    if (strcmp(t->text, "for") == 0 ||
+                        strcmp(t->text, "case") == 0) {
+                        cmdpos = false;
+                        expect_in = 2;
+                    }
+                } else if (is_assignment(t->text)) {
+                    col = C_VAR; /* stays cmdpos: A=1 cmd */
+                } else {
+                    col = valid_command(t->text) ? C_CMD_OK : C_CMD_BAD;
+                    cmdpos = false;
+                }
+            } else if (expect_in) {
+                expect_in--;
+                if (strcmp(t->text, "in") == 0) {
+                    col = C_KEYWORD;
+                    expect_in = 0;
+                }
+            } else if (t->text[0] == '\'' || t->text[0] == '"') {
+                col = C_STRING;
+            } else if (t->text[0] == '$') {
+                col = C_VAR;
+            }
+            if (col) {
+                ob_str(&o, col);
+                ob_put(&o, src + t->pos, tl);
+                ob_str(&o, C_OFF);
+            } else {
+                ob_put(&o, src + t->pos, tl);
+            }
+        } else {
+            ob_put(&o, src + t->pos, tl);
+            switch (t->type) {
+            case TOK_PIPE: case TOK_AND: case TOK_OR: case TOK_SEMI:
+            case TOK_DSEMI: case TOK_AMP: case TOK_NEWLINE:
+            case TOK_RPAREN:
+                cmdpos = true; /* a fresh command starts */
+                expect_in = 0;
+                break;
+            default: /* redirects, '(' — a filename or body follows */
+                break;
+            }
+        }
+        prev = t->pos + tl;
+    }
+    put_gap(&o, src, prev, len);
+    psh_tokens_free(toks);
+    ob_put(&o, "", 1); /* NUL-terminate */
+    return o.b;
+}
+
+/* ---------------- autosuggestions (H4.3) ---------------- */
+
+/* The newest history entry the buffer is a strict prefix of; its
+ * remainder is painted grey after the line. */
+static void update_sugg(struct el *e)
+{
+    free(e->sugg);
+    e->sugg = NULL;
+    if (e->len == 0)
+        return;
+    for (size_t i = hist_n; i-- > 0;) {
+        if (strncmp(hist[i], e->buf, e->len) == 0 && hist[i][e->len]) {
+            e->sugg = strdup(hist[i] + e->len);
+            return;
+        }
+    }
+}
+
+/* → / End / ^E take the whole suggestion; Alt-f / Ctrl-→ take one
+ * word of it. Only when the cursor is at the end of the line. */
+static bool sugg_accept(struct el *e, bool word_only)
+{
+    if (!e->sugg || !*e->sugg || e->pos != e->len)
+        return false;
+    size_t n = strlen(e->sugg);
+    if (word_only) {
+        size_t k = 0;
+        while (e->sugg[k] == ' ')
+            k++;
+        while (e->sugg[k] && e->sugg[k] != ' ')
+            k++;
+        if (e->sugg[k] == ' ')
+            k++;
+        n = k;
+    }
+    el_insert(e, e->sugg, n);
+    return true;
+}
+
 /* The repaint. See the header comment for the model. */
 static void refresh(struct el *e)
 {
@@ -372,6 +581,8 @@ static void refresh(struct el *e)
     cell_walk(&cur, e->cols, e->buf, e->pos);
     end = cur;
     cell_walk(&end, e->cols, e->buf + e->pos, e->len - e->pos);
+    if (e->sugg) /* the grey tail occupies real cells */
+        cell_walk(&end, e->cols, e->sugg, strlen(e->sugg));
     cell_norm(&cur);
 
     if (e->cur_row > 0)
@@ -381,7 +592,18 @@ static void refresh(struct el *e)
     for (const char *p = e->prompt; *p; p++) /* strip \001/\002 */
         if (*p != '\001' && *p != '\002')
             ob_put(&o, p, 1);
-    ob_put(&o, e->buf, e->len);
+    char *colored = colorize(e->buf, e->len);
+    if (colored) {
+        ob_str(&o, colored);
+        free(colored);
+    } else {
+        ob_put(&o, e->buf, e->len);
+    }
+    if (e->sugg) {
+        ob_str(&o, C_GREY);
+        ob_str(&o, e->sugg);
+        ob_str(&o, C_OFF);
+    }
 
     size_t final_row = end.row;
     if (end.pending) { /* content ends flush right: force the wrap */
@@ -405,6 +627,8 @@ static size_t paint_rows(struct el *e)
     struct cell c = { 0 };
     cell_walk(&c, e->cols, e->prompt, strlen(e->prompt));
     cell_walk(&c, e->cols, e->buf, e->len);
+    if (e->sugg)
+        cell_walk(&c, e->cols, e->sugg, strlen(e->sugg));
     return c.row + (c.pending ? 1 : 0);
 }
 
@@ -507,7 +731,7 @@ static void handle_escape(struct el *e)
     if (read(STDIN_FILENO, &a, 1) != 1)
         return;
     if (a == 'b') { word_back(e); return; }
-    if (a == 'f') { word_fwd(e); return; }
+    if (a == 'f') { if (!sugg_accept(e, true)) word_fwd(e); return; }
     if (a != '[' && a != 'O')
         return;
     char b;
@@ -516,10 +740,16 @@ static void handle_escape(struct el *e)
     switch (b) {
     case 'A': if (e->hist_ix > 0) hist_to(e, e->hist_ix - 1); return;
     case 'B': if (e->hist_ix < hist_n) hist_to(e, e->hist_ix + 1); return;
-    case 'C': e->pos = next_cp(e->buf, e->len, e->pos); return;
+    case 'C':
+        if (!sugg_accept(e, false))
+            e->pos = next_cp(e->buf, e->len, e->pos);
+        return;
     case 'D': e->pos = prev_cp(e->buf, e->pos); return;
     case 'H': e->pos = 0; return;
-    case 'F': e->pos = e->len; return;
+    case 'F':
+        if (!sugg_accept(e, false))
+            e->pos = e->len;
+        return;
     }
     if (b >= '0' && b <= '9') { /* ESC [ <digits> (;<digits>)* <final> */
         char seq[8] = { b };
@@ -536,12 +766,14 @@ static void handle_escape(struct el *e)
                     el_delete(e, e->pos, next_cp(e->buf, e->len, e->pos));
                 else if (strcmp(seq, "1") == 0 || strcmp(seq, "7") == 0)
                     e->pos = 0;
-                else if (strcmp(seq, "4") == 0 || strcmp(seq, "8") == 0)
-                    e->pos = e->len;
+                else if (strcmp(seq, "4") == 0 || strcmp(seq, "8") == 0) {
+                    if (!sugg_accept(e, false))
+                        e->pos = e->len;
+                }
                 else if (strcmp(seq, "200") == 0)
                     read_paste(e);
             } else if (strcmp(seq, "1;5") == 0) { /* Ctrl-arrows */
-                if (c == 'C') word_fwd(e);
+                if (c == 'C' && !sugg_accept(e, true)) word_fwd(e);
                 if (c == 'D') word_back(e);
             }
             return;
@@ -753,6 +985,8 @@ static int do_search(struct el *e)
     char q[128] = "";
     size_t ql = 0;
     size_t ix = hist_n; /* current match; hist_n = none yet */
+    free(e->sugg);      /* no grey tail while searching */
+    e->sugg = NULL;
     char *orig = strdup(e->buf);
     size_t orig_pos = e->pos;
     const char *saved_prompt = e->prompt;
@@ -907,6 +1141,8 @@ char *psh_editor_readline(const char *prompt)
         case '\n':
 submit:
             e.pos = e.len;
+            free(e.sugg); /* the grey tail must not outlive the line */
+            e.sugg = NULL;
             refresh(&e);
             /* paste-mode off BEFORE the newline hands the screen to
              * the command — nothing may leak into its output line */
@@ -928,9 +1164,15 @@ submit:
                 el_delete(&e, prev_cp(e.buf, e.pos), e.pos);
             break;
         case 1: e.pos = 0; break;                                /* ^A */
-        case 5: e.pos = e.len; break;                            /* ^E */
+        case 5: /* ^E: end — or take the suggestion, fish-style */
+            if (!sugg_accept(&e, false))
+                e.pos = e.len;
+            break;
         case 2: e.pos = prev_cp(e.buf, e.pos); break;            /* ^B */
-        case 6: e.pos = next_cp(e.buf, e.len, e.pos); break;     /* ^F */
+        case 6: /* ^F: right — or take the suggestion at the edge */
+            if (!sugg_accept(&e, false))
+                e.pos = next_cp(e.buf, e.len, e.pos);
+            break;
         case 11: e.len = e.pos; e.buf[e.len] = '\0'; break;      /* ^K */
         case 21: el_delete(&e, 0, e.pos); break;                 /* ^U */
         case 23: {                                               /* ^W */
@@ -998,6 +1240,7 @@ submit:
             }
             break;
         }
+        update_sugg(&e);
         refresh(&e);
     }
 
@@ -1005,5 +1248,6 @@ submit:
     disable_raw();
     free(e.buf);
     free(e.saved);
+    free(e.sugg);
     return result;
 }

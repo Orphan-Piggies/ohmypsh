@@ -150,8 +150,14 @@ the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
 - [x] H4.2b ^X^E: edit the line in $VISUAL/$EDITOR (zsh-style — the
       result returns to the buffer, Enter submits; bash's
       execute-on-exit trusts vim muscle memory a bit too much)
-- [ ] H4.3 the prizes: grey autosuggestions from history (→ accepts),
-      syntax highlighting straight from the real lexer
+- [x] H4.3 the prizes. Autosuggestions: newest history entry the
+      buffer prefixes, painted grey past the cursor; → / End / ^E
+      accept it all, Alt-f / Ctrl-→ one word. Syntax highlighting by
+      the REAL lexer (tokens grew a byte offset — no second grammar
+      to drift): command position green if it resolves
+      (builtin/function/$PATH via psh_path_lookup) and red if not —
+      typos glow before Enter; keywords bold; strings yellow; $vars,
+      assignments and function-def names cyan; comments grey
 - [ ] H4.4 flip the default, drop -lreadline, un-note the LICENSE,
       update README/man
 
