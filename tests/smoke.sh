@@ -425,6 +425,37 @@ fi
 out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=git\nsource $OMP_DIR/omp.psh\nomp theme plain > /dev/null\necho $PSH_PROMPT\n' "$OMPD" | $PSH)
 check "omp theme switches the prompt template" 'psh$(__omp_status) $ ' "$out"
 
+# ---- the crunchy fleet: z, extract, duration ----
+
+mkdir -p "$tmp/deep/nest-alpha" "$tmp/other"
+out=$(printf 'OMP_DIR=%s\n__OMP_Z_FILE=%s/zdata\nOMP_PLUGINS=z\nsource $OMP_DIR/omp.psh\ncd %s/deep/nest-alpha\nomp_precmd\ncd %s/other\nomp_precmd\ncd /\nomp_precmd\nz alpha\npwd\n' \
+    "$OMPD" "$tmp" "$tmp" "$tmp" | $PSH | tail -1)
+check "z jumps to the best frecency match" "$tmp/deep/nest-alpha" "$out"
+
+out=$(printf 'OMP_DIR=%s\n__OMP_Z_FILE=%s/zdata\nOMP_PLUGINS=z\nsource $OMP_DIR/omp.psh\nz nosuchplace-qq\n' \
+    "$OMPD" "$tmp" | $PSH)
+check "z misses politely" "z: no match for nosuchplace-qq in the bag" "$out"
+
+mkdir -p "$tmp/arch" && echo "kernel of truth" > "$tmp/arch/nut.txt"
+tar czf "$tmp/arch/nut.tar.gz" -C "$tmp/arch" nut.txt && rm "$tmp/arch/nut.txt"
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=extract\nsource $OMP_DIR/omp.psh\ncd %s/arch\nextract nut.tar.gz\ncat nut.txt\n' \
+    "$OMPD" "$tmp" | $PSH)
+check "extract cracks a tar.gz" "kernel of truth" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=extract\nsource $OMP_DIR/omp.psh\nextract mystery.nut\n' "$OMPD" | $PSH)
+check "extract rejects unknown shells" "extract: mystery.nut: no such file" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=duration\nsource $OMP_DIR/omp.psh\nPSH_CMD_MS=3400\n__omp_duration_prompt\n' "$OMPD" | $PSH)
+case $out in *"3.4s"*) out=3.4s ;; esac
+check "duration formats seconds" "3.4s" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=duration\nsource $OMP_DIR/omp.psh\nPSH_CMD_MS=83000\n__omp_duration_prompt\n' "$OMPD" | $PSH)
+case $out in *"1m23s"*) out=1m23s ;; esac
+check "duration formats minutes" "1m23s" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=duration\nsource $OMP_DIR/omp.psh\nPSH_CMD_MS=900\n__omp_duration_prompt\necho quiet=$?\n' "$OMPD" | $PSH)
+check "duration stays quiet under the threshold" "quiet=0" "$out"
+
 rm -rf "$tmp"
 
 echo

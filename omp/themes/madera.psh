@@ -1,0 +1,10 @@
+# 🏭 Madera — the Central Valley agro-industrial theme. California's
+# pistachio harvest is machines all the way down, and so is this:
+# monochrome matrix greens on machine grey, and with the duration
+# plugin enabled every prompt reports the last command's execution
+# time down to the millisecond. (Distilled from a passing agent's
+# suggestion — the good parts survived review.)
+
+OMP_DURATION_MIN_MS=0
+
+PSH_PROMPT='\e[38;5;40m$(basename $PWD)\e[0m\e[38;5;245m$(__omp_git_prompt)\e[0m$(__omp_duration_prompt)$(__omp_status) \e[38;5;40m▮\e[0m '

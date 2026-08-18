@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "psh.h"
@@ -44,6 +45,13 @@ static void save_history(void)
 {
     if (hist_path[0])
         psh_editor_hist_save(hist_path);
+}
+
+static double now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 }
 
 /*
@@ -309,7 +317,19 @@ static void repl_interactive(void)
             continue;
         }
         free(line);
+        /* Time the unit and publish $PSH_CMD_MS — themes and the
+         * duration plugin read it. Only for lines that DID something
+         * (a bare Enter shouldn't wipe the last reading), and only
+         * here: omp_precmd runs through psh_run_string, so hooks
+         * never overwrite the measurement they're about to show. */
+        bool ran = acc && acc[strspn(acc, " \t\n")] != '\0';
+        double t0 = now_ms();
         if (feed(acc) == FEED_DONE) {
+            if (ran) {
+                char ms[32];
+                snprintf(ms, sizeof ms, "%.0f", now_ms() - t0);
+                psh_var_set("PSH_CMD_MS", ms);
+            }
             free(acc);
             acc = NULL;
         }

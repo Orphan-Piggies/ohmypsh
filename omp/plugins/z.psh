@@ -1,0 +1,47 @@
+# z — frecency directory jumping, the most-loved trick in every
+# shell framework, now in the bag.
+#
+# Every directory change is logged (count + last visit) via the
+# chpwd hook. Then:
+#
+#   z insi        cd to the best match for "insi" — most-visited
+#                 wins, most-recent breaks ties
+#   z             list the top 10 haunts
+#
+# Data lives in ~/.psh_z as `path|count|epoch`, one line each.
+
+if [ "$__OMP_Z_FILE" = "" ]; then
+    __OMP_Z_FILE=$HOME/.psh_z
+fi
+touch $__OMP_Z_FILE
+
+__omp_z_log() {
+    if [ "$PWD" = "$HOME" ]; then
+        return 0
+    fi
+    awk -v p="$PWD" -v now="$(date +%s)" -F'|' '
+        $1 == p { print $1 "|" $2 + 1 "|" now; found = 1; next }
+        { print }
+        END { if (!found) print p "|1|" now }
+    ' $__OMP_Z_FILE > $__OMP_Z_FILE.tmp && mv $__OMP_Z_FILE.tmp $__OMP_Z_FILE
+}
+
+# (psh has no backslash continuation — but a line ending in | keeps
+# going, so the long pipelines below wrap on their pipes.)
+z() {
+    if [ "$1" = "" ]; then
+        sort -t'|' -k2,2rn -k3,3rn $__OMP_Z_FILE | head |
+            awk -F'|' '{ printf "%4d  %s\n", $2, $1 }'
+        return 0
+    fi
+    local dest
+    dest=$(awk -F'|' -v q="$1" 'index(tolower($1), tolower(q))' $__OMP_Z_FILE |
+               sort -t'|' -k2,2rn -k3,3rn | head -1 | cut -d'|' -f1)
+    if [ "$dest" = "" ]; then
+        echo "z: no match for $1 in the bag"
+        return 1
+    fi
+    cd $dest
+}
+
+omp_hook_chpwd __omp_z_log

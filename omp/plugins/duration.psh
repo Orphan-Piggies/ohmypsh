@@ -1,0 +1,32 @@
+# duration — how long did that take?
+#
+# psh's REPL times every command and publishes $PSH_CMD_MS (needs
+# psh >= 0.11). This plugin turns it into a prompt segment: silent
+# for quick commands, " ⏱2.4s" once something crosses
+# $OMP_DURATION_MIN_MS (default 2000; themes may lower it — madera
+# sets 0 and shows every millisecond).
+
+if [ "$OMP_DURATION_MIN_MS" = "" ]; then
+    OMP_DURATION_MIN_MS=2000
+fi
+
+# ($((...)) speaks bare variable names, not $1 — hence the local.)
+__omp_format_ms() {
+    local ms
+    ms=$1
+    if [ $ms -ge 60000 ]; then
+        echo "$((ms / 60000))m$((ms % 60000 / 1000))s"
+    elif [ $ms -ge 1000 ]; then
+        echo "$((ms / 1000)).$((ms % 1000 / 100))s"
+    else
+        echo "${ms}ms"
+    fi
+}
+
+__omp_duration_prompt() {
+    if [ "$PSH_CMD_MS" != "" ]; then
+        if [ $PSH_CMD_MS -ge $OMP_DURATION_MIN_MS ]; then
+            echo " \e[33m⏱$(__omp_format_ms $PSH_CMD_MS)\e[0m"
+        fi
+    fi
+}

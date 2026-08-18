@@ -5,6 +5,10 @@ When this list stops growing, that's v1.0.
 
 ## open
 
+- `$((...))` doesn't expand `$1`/`$?` etc. inside the expression —
+  only bare variable names. bash allows both. Workaround: assign to
+  a local first. (Bit the duration plugin.)
+
 - `omp enable <plugin>` only lasts the session; the "add to
   OMP_PLUGINS in ~/.pshrc to keep" hint is easy to miss. Should it
   offer to edit ~/.pshrc itself? (Bit us on day one: python plugin

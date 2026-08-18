@@ -164,6 +164,25 @@ the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
       longer installs libreadline-dev, README/man updated,
       PSH_EDITOR retired. complete.c is pure engine now.
 
+## H6 — the crunchy fleet (opened 2026-08-18, after H4)
+Themes and plugins worth stealing from the neighbours (omz/omf),
+now that we own the whole stack down to the line editor.
+- [x] z — frecency directory jumping: chpwd hook logs to ~/.psh_z,
+      `z <query>` cds to the most-visited match (ties → most recent)
+- [x] extract / x — one command cracks any archive; the plugin is
+      one big case/esac, which is exactly the point
+- [x] C enabler: the REPL times every command → $PSH_CMD_MS;
+      duration plugin turns it into a ⏱2.4s prompt segment
+      (threshold $OMP_DURATION_MIN_MS, default 2s)
+- [x] themes from the agent suggestion pile (extras/lore/), salt
+      applied — picked madera (agro-industrial matrix mono-green,
+      shows every ms) and aleppo (fustuq al-halabi silk-road
+      vintage); rejected the palette-swaps and the physically
+      impossible one
+- [ ] candidates: fish-style abbr (editor hook), RPROMPT (we own
+      the renderer), bgnotify on $PSH_CMD_MS, the agent plugin
+      (?? / oops), command-not-found hook
+
 ## H5 — seaworthiness (v0.10.0, mostly ✅)
 - [x] LICENSE: MIT (source), with the readline/GPL note for binaries
 - [x] CI: GitHub Actions — build with -Werror, smoke tests, ASan

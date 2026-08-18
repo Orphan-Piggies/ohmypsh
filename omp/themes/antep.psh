@@ -3,4 +3,4 @@
 # kökləyir"). Single quotes keep the $( ) segments UNEXPANDED here;
 # the shell expands the template fresh for every prompt.
 
-PSH_PROMPT='🫛 \e[32m$(basename $PWD)\e[0m$(__omp_venv_prompt)$(__omp_git_prompt)$(__omp_status) \e[32m$\e[0m '
+PSH_PROMPT='🫛 \e[32m$(basename $PWD)\e[0m$(__omp_venv_prompt)$(__omp_git_prompt)$(__omp_duration_prompt)$(__omp_status) \e[32m$\e[0m '

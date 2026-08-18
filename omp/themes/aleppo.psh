@@ -1,0 +1,7 @@
+# 🏛️ Aleppo — fustuq al-halabi: across much of the world the
+# pistachio is literally named after this city, the Silk Road hub
+# that traded them for millennia. Vintage and desaturated — muted
+# maroon, ash grey, dark amber — for eyes that have seen too much
+# neon. (Distilled from a passing agent's suggestion.)
+
+PSH_PROMPT='\e[38;5;131m$(basename $PWD)\e[0m$(__omp_venv_prompt)$(__omp_git_prompt)$(__omp_duration_prompt)$(__omp_status) \e[38;5;136m▸\e[0m '

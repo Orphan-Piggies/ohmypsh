@@ -46,6 +46,8 @@ echo sugg-t\0033[C\n
 if true; then true; fi\n
 nosuchcmd-qq\n
 echo "ystr"\n
+sleep 0.3\n
+echo tookms=$PSH_CMD_MS\n
 exit\n
 EOF
 )
@@ -76,6 +78,8 @@ check "valid command painted green"   "$(has '\[32mecho')"
 check "unknown command painted red"   "$(has '\[31mnosuchcmd-qq')"
 check "keyword painted bold"          "$(has '\[1mif')"
 check "string painted yellow"         "$(has '\[33m"ystr"')"
+n=$(printf '%s\n' "$out" | grep -aEc '^tookms=(3[0-9][0-9]|[4-9][0-9][0-9]|[0-9]{4,})$')
+check "PSH_CMD_MS measures the sleep"  "$([ "$n" = 1 ] && echo yes)"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

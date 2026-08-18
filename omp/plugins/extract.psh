@@ -1,0 +1,37 @@
+# extract — one command to crack any archive, the oh-my-zsh classic.
+# Also a showcase for `case`: the whole plugin is one pattern match.
+# Unpackers are invoked as-is; a missing one fails with the usual
+# command-not-found (and its flavor line).
+
+extract() {
+    if [ "$1" = "" ]; then
+        echo "usage: extract <archive> [archive...]"
+        return 2
+    fi
+    for f in $@; do
+        if [ ! -f $f ]; then
+            echo "extract: $f: no such file"
+            return 1
+        fi
+        case $f in
+            *.tar.gz | *.tgz)   tar xzf $f ;;
+            *.tar.bz2 | *.tbz2) tar xjf $f ;;
+            *.tar.xz | *.txz)   tar xJf $f ;;
+            *.tar.zst)          tar --zstd -xf $f ;;
+            *.tar)              tar xf $f ;;
+            *.gz)               gunzip -k $f ;;
+            *.bz2)              bunzip2 -k $f ;;
+            *.xz)               unxz -k $f ;;
+            *.zip | *.jar)      unzip -q $f ;;
+            *.rar)              unrar x $f ;;
+            *.7z)               7z x $f ;;
+            *.deb)              ar x $f ;;
+            *)
+                echo "extract: $f: don't know how to crack this nut"
+                return 1
+                ;;
+        esac
+    done
+}
+
+x() { extract $@; }

@@ -1,0 +1,18 @@
+🌋 Bronte (Sicily, Italy) — The "Green Gold" ThemeThe Lore: Grown on the fertile, volcanic slopes of Mount Etna. Bronte pistachios are world-famous for being intensely emerald green, sweet, and incredibly expensive.Theme Profile: A high-contrast, premium theme. It uses blindingly bright neon green text (\e[38;5;118m) paired with a sharp, fiery lava-red status line for broken pipelines (\e[38;5;196m).
+
+
+🏖️ Aegina (Greece) — The Island Mediterranean ThemeThe Lore: The island of Aegina is the historical cradle of Greek pistachio farming. Their nuts have a distinct pinkish-red outer shell and a light green core, protected by an EU PDO status.Theme Profile: A pastel, ocean-vibe layout. Deep oceanic blue directory paths (\e[38;5;39m) accented by a unique magenta-and-green prompt icon to represent the Greek coastal shell.
+
+
+🏜️ Rafsanjan (Iran) — The Heavy-Duty Desert ThemeThe Lore: Located right in the Kerman province, Rafsanjan is the absolute historical powerhouse of global pistachio trading, surrounded by massive desert oases.Theme Profile: A warm, earth-toned script environment. It shifts the standard terminal white text to a soft cream/sand color, utilizing dark copper and rich olive tones for low eye strain during late-night debugging.
+
+
+🏛️ Aleppo (Syria) — The Silk Road Vintage ThemeThe Lore: In many Middle Eastern cultures, pistachios are natively called Fustuq al-Halabi (Aleppo nuts). This ancient trade hub has cultivated them for thousands of years.Theme Profile: A vintage, desaturated aesthetic. Perfect for developers who hate bright neon. It utilizes muted maroon text, dark amber warning states, and a subtle gray prompt.
+
+
+🤠 Alamogordo (Nyu-Meksiko) — The "Big Nut" MövzusuTarixi/Lore: Dünyanın ən böyük süni fıstıq abidəsinə ("McGinn's Country Store"-da yerləşən 9 metrlik fıstıq heykəli) ev sahibliyi edən şəhər. Nyu-Meksiko çöllərində fıstıq bağları ilə məşhurdur.Mövzu Profili (alamogordo.psh): Çöl vesterni estetikası. Prompt işarəsi standartdan iki dəfə böyük görünür. Tünd sarı/qum rəngli fonlar və parlaq fıstıq yaşılı detallar istifadə olunur.
+
+🏜️ Bowie & San Simon (Arizona) — The High-Desert MövzusuTarixi/Lore: Arizonanın cənub-şərqində, dəniz səviyyəsindən yüksəkdə yerləşən bu quraq düzənliklər ştatın fıstıq istehsalının mərkəzidir. Buradakı püstələr kəskin temperatur fərqlərində (çox isti günlər və şaxtalı gecələr) yetişir.Mövzu Profili (bowie.psh): Yüksək dözümlülük və minimalizm. Çox az resurs sərfi bə bənövşəyi Arizona gecə səmti rənglərindən (\e[38;5;93m) ilhamlanan qaranlıq prompt xətləri.
+
+
+🍷 Madera (Kaliforniya) — The Central Valley Agro-Industrial MövzusuTarixi/Lore: San Joaquin vadisinin daxilində yerləşsə də, sırf sənaye tipli massiv fıstıq emalı zavodları və robotlaşdırılmış toplama sistemləri ilə tanınır. Tam olaraq bizim robot-dron erasına uyğundur.Mövzu Profili (madera.psh): Matrix üslubunda monoxrom interfeys. Terminal rəngləri yalnız yaşılın və metal bozunun tonlarından ibarətdir, hər bir komanda icra müddətini (time) milisaniyə dəqiqliyi ilə göstərir.
