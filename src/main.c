@@ -88,15 +88,25 @@ int main(void)
             break;
         }
 
-        psh_command *cmd = psh_parse_line(line);
-        if (!cmd) {
-            fprintf(stderr, "psh: syntax error: unterminated quote\n");
+        /* lex → parse → execute; each stage reports its own errors */
+        bool err = false;
+        psh_token *tokens = psh_tokenize(line, &err);
+        if (err) {
             status = 2;
             continue;
         }
 
-        status = psh_execute(cmd);
-        psh_command_free(cmd);
+        psh_stmt *stmts = psh_parse(tokens, &err);
+        psh_tokens_free(tokens);
+        if (err) {
+            status = 2;
+            continue;
+        }
+
+        if (stmts) { /* NULL = blank line: nothing to do */
+            status = psh_execute(stmts);
+            psh_stmts_free(stmts);
+        }
     }
 
     free(line);

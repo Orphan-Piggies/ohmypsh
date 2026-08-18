@@ -1,38 +1,54 @@
 /*
- * lexer.c — turn one line of input into an argv[] vector.
+ * lexer.c — turn one line of input into a stream of tokens.
  *
- * Milestone-1 grammar, deliberately tiny:
+ * In milestone 1 this file produced argv[] directly. Now that the
+ * grammar has operators, the classic split appears: the lexer only
+ * CLASSIFIES characters into tokens; parser.c gives them structure.
  *
- *   - words are separated by unquoted whitespace
- *   - 'single quotes' and "double quotes" group text (including spaces)
- *     into one word; the quotes themselves are removed
- *   - quotes can sit inside a word:  ab"c d"e  →  one word: abc de
+ * Token kinds:  words,  |  ;  <  >  >>  2>
  *
- * Design decision (the "familiar core" philosophy): quoting exists only
- * HERE, at parse time. When variables arrive in a later milestone their
- * values will NOT be re-split on spaces — that single choice kills the
- * most famous family of sh bugs (`rm $file` deleting two files).
+ * Quoting rules are unchanged — '...' and "..." group text into one
+ * word — with one important consequence: a QUOTED operator character
+ * is literal.  echo "a|b"  is one word; no pipe is created.
+ *
+ * `2>` is recognized only at the start of a word, matching sh: in
+ * `echo 2> f` the 2 binds to the redirect, but `echo a2> f` is the
+ * word "a2" followed by a plain `>`. (`2>>` can join in a later
+ * milestone if anyone ever misses it.)
  */
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "psh.h"
 
-psh_command *psh_parse_line(const char *line)
+static psh_token *tok_append(psh_token **head, psh_token **tail,
+                             psh_token_type type, char *text)
 {
-    size_t cap = 8;
-    size_t argc = 0;
-    char **argv = malloc(cap * sizeof *argv);
-    /*
-     * One reusable token buffer. A single token can never be longer
-     * than the whole line, so strlen(line)+1 bytes is always enough —
-     * no reallocation logic needed inside the hot loop.
-     */
-    char *tok = malloc(strlen(line) + 1);
-    if (!argv || !tok)
+    psh_token *t = malloc(sizeof *t);
+    if (!t)
+        return NULL;
+    t->type = type;
+    t->text = text; /* takes ownership */
+    t->next = NULL;
+    if (*tail)
+        (*tail)->next = t;
+    else
+        *head = t;
+    *tail = t;
+    return t;
+}
+
+psh_token *psh_tokenize(const char *line, bool *err)
+{
+    *err = false;
+    psh_token *head = NULL, *tail = NULL;
+    /* One token can never be longer than the whole line. */
+    char *buf = malloc(strlen(line) + 1);
+    if (!buf)
         goto oom;
 
     const char *p = line;
@@ -42,66 +58,64 @@ psh_command *psh_parse_line(const char *line)
         if (!*p)
             break;
 
+        int op = -1;
+        if (*p == '|') { op = TOK_PIPE; p += 1; }
+        else if (*p == ';') { op = TOK_SEMI; p += 1; }
+        else if (*p == '<') { op = TOK_REDIR_IN; p += 1; }
+        else if (*p == '>' && p[1] == '>') { op = TOK_REDIR_APPEND; p += 2; }
+        else if (*p == '>') { op = TOK_REDIR_OUT; p += 1; }
+        else if (*p == '2' && p[1] == '>') { op = TOK_REDIR_ERR; p += 2; }
+
+        if (op >= 0) {
+            if (!tok_append(&head, &tail, (psh_token_type)op, NULL))
+                goto oom;
+            continue;
+        }
+
+        /* A word: runs until unquoted whitespace or an operator char. */
         size_t t = 0;
-        while (*p && !isspace((unsigned char)*p)) {
+        while (*p && !isspace((unsigned char)*p) && !strchr("|;<>", *p)) {
             if (*p == '\'' || *p == '"') {
                 char quote = *p++;
                 while (*p && *p != quote)
-                    tok[t++] = *p++;
-                if (!*p)
-                    goto syntax_error; /* line ended inside quotes */
+                    buf[t++] = *p++;
+                if (!*p) {
+                    fprintf(stderr,
+                            "psh: syntax error: unterminated quote\n");
+                    goto fail;
+                }
                 p++; /* skip the closing quote */
             } else {
-                tok[t++] = *p++;
+                buf[t++] = *p++;
             }
         }
-        tok[t] = '\0';
+        buf[t] = '\0';
 
-        if (argc + 2 > cap) { /* +2: this token and the final NULL */
-            cap *= 2;
-            char **grown = realloc(argv, cap * sizeof *argv);
-            if (!grown)
-                goto oom;
-            argv = grown;
-        }
-        argv[argc] = strdup(tok);
-        if (!argv[argc])
+        char *word = strdup(buf);
+        if (!word || !tok_append(&head, &tail, TOK_WORD, word)) {
+            free(word);
             goto oom;
-        argc++;
+        }
     }
 
-    free(tok);
-    argv[argc] = NULL;
-
-    psh_command *cmd = malloc(sizeof *cmd);
-    if (!cmd)
-        goto oom_cmd;
-    cmd->argv = argv;
-    cmd->argc = argc;
-    return cmd;
-
-syntax_error:
-    free(tok);
-    for (size_t i = 0; i < argc; i++)
-        free(argv[i]);
-    free(argv);
-    return NULL;
+    free(buf);
+    return head;
 
 oom:
-    free(tok);
-oom_cmd:
-    for (size_t i = 0; i < argc; i++)
-        free(argv[i]);
-    free(argv);
+    fprintf(stderr, "psh: out of memory\n");
+fail:
+    free(buf);
+    psh_tokens_free(head);
+    *err = true;
     return NULL;
 }
 
-void psh_command_free(psh_command *cmd)
+void psh_tokens_free(psh_token *t)
 {
-    if (!cmd)
-        return;
-    for (size_t i = 0; i < cmd->argc; i++)
-        free(cmd->argv[i]);
-    free(cmd->argv);
-    free(cmd);
+    while (t) {
+        psh_token *next = t->next;
+        free(t->text);
+        free(t);
+        t = next;
+    }
 }

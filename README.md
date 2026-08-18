@@ -11,9 +11,11 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Milestone 1 of [the roadmap](docs/ROADMAP.md): a working interactive
-shell that runs commands, understands quoting, has `cd`/`exit`/`pwd`,
-and survives Ctrl-C like a shell should. Pipes and redirects are next.
+Milestone 2 of [the roadmap](docs/ROADMAP.md): a working interactive
+shell with quoting, pipelines (`ls | grep c | wc -l`), redirects
+(`>`, `>>`, `<`, `2>`), `;`-separated commands, and `cd`/`exit`/`pwd` —
+and it survives Ctrl-C like a shell should. Next up: readline (history,
+arrow keys), `&&`/`||`, globbing, and variables.
 
 ## Build & run
 
@@ -30,8 +32,9 @@ Requires only a C compiler and a POSIX system. No dependencies yet
 
 ```
 src/main.c       the REPL — the loop that IS the shell
-src/lexer.c      line → argv[], quote handling
-src/exec.c       fork / execvp / waitpid
+src/lexer.c      line → tokens (words, | ; < > >> 2>), quote handling
+src/parser.c     tokens → statements → pipelines → commands
+src/exec.c       fork / execvp / waitpid, pipes, redirects
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
 docs/ROADMAP.md  where this is going

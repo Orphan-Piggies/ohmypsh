@@ -49,6 +49,8 @@ static const char *wisdom[] = {
     "PATH is just a list of places to look. so is life.",
     "exit status 0 is the only compliment Unix will ever give you.",
     "the hardest shells hold the best nuts.",
+    "a pipe is just two processes agreeing about a file descriptor.",
+    "a reader waits forever for a write end someone forgot to close. don't be that fd.",
 };
 
 int psh_builtin_crack(char **argv)

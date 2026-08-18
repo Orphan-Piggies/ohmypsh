@@ -12,13 +12,15 @@ never start a milestone until the previous one survives daily poking.
 - [x] Prompt shows cwd (~-shortened) and last failure status
 - [x] `pistachio.c` established as the easter-pistachio containment zone
 
-## M2 — plumbing (the week-1 goal)
-- [ ] Pipes: `ls | grep foo | wc -l` (loop of fork/exec with pipe(2),
+## M2 — plumbing (the week-1 goal) ✅
+- [x] Pipes: `ls | grep foo | wc -l` (loop of fork/exec with pipe(2),
       parent closes both ends, wait for all children)
-- [ ] Redirects: `> file`, `>> file`, `< file`, `2> file`
-- [ ] Multiple commands per line: `;`
-- [ ] Lexer grows operator tokens (`|`, `>`, `<`, `;`) — this is where
-      the lexer/parser split starts to matter
+- [x] Redirects: `> file`, `>> file`, `< file`, `2> file`
+- [x] Multiple commands per line: `;`
+- [x] Lexer grows operator tokens (`|`, `>`, `<`, `;`) — and parser.c
+      is born: tokens → statements → pipelines → commands
+- [x] Lone builtins with redirects run in-parent (fd save/restore);
+      builtins inside pipelines run in the child, like bash
 
 ## M3 — livable (the week-2 goal)
 - [ ] GNU readline: history, arrow keys, Ctrl-R, line editing for free
