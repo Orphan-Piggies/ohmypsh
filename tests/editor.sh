@@ -25,7 +25,7 @@ out=$(
   while IFS= read -r chunk; do
       printf '%b' "$chunk"
       sleep 0.2
-  done <<'EOF' | PSH_EDITOR=nut script -qec "$PSH" /dev/null | tr -d '\r'
+  done <<'EOF' | script -qec "$PSH" /dev/null | tr -d '\r'
 echo plain works\n
 echo XY\0033[D\0033[DAB\n
 echo abcQ\0177\n

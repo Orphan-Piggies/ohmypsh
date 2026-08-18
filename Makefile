@@ -7,7 +7,7 @@
 
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -g -D_POSIX_C_SOURCE=200809L
-LDLIBS  := -lreadline
+LDLIBS  :=  # zero dependencies since H4.4 — libc is the whole ship
 
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)

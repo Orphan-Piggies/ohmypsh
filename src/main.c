@@ -1,8 +1,8 @@
 /*
  * main.c — the REPL, and every other way input reaches the shell:
  *
- *   psh              interactive: readline, history, continuation
- *                    prompts for multi-line constructs
+ *   psh              interactive: the cockpit (editor.c), history,
+ *                    continuation prompts for multi-line constructs
  *   psh file [args]  run a script; args become $1..$9, $#
  *   psh -c 'cmd'     run one string and exit
  *   (piped stdin)    non-interactive line loop
@@ -25,9 +25,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <readline/history.h>
-#include <readline/readline.h>
-
 #include "psh.h"
 
 #ifndef PATH_MAX
@@ -43,17 +40,10 @@ const char *psh_arg0 = "psh";
 
 static char hist_path[PATH_MAX];
 
-/* Both editors' histories are fed all session long (they share the
- * file format), so PSH_EDITOR can flip mid-session without losing
- * anything; whichever is active at exit writes the file. */
 static void save_history(void)
 {
-    if (!hist_path[0])
-        return;
-    if (psh_editor_active())
+    if (hist_path[0])
         psh_editor_hist_save(hist_path);
-    else
-        write_history(hist_path);
 }
 
 /*
@@ -272,13 +262,10 @@ static bool acc_append(char **acc, const char *line)
 static void repl_interactive(void)
 {
     psh_pistachio_hello();
-    psh_completion_init();
 
     const char *home = psh_var_get("HOME");
     if (home) {
         snprintf(hist_path, sizeof hist_path, "%s/.psh_history", home);
-        read_history(hist_path);
-        stifle_history(1000);
         psh_editor_hist_load(hist_path);
         /* atexit catches BOTH exit paths: Ctrl-D and the `exit`
          * builtin (which calls exit() from deep in builtins.c). */
@@ -302,9 +289,7 @@ static void repl_interactive(void)
             psh_jobs_notify();
             build_prompt(prompt, sizeof prompt);
         }
-        const char *p = acc ? "  > " : prompt;
-        char *line = psh_editor_active() ? psh_editor_readline(p)
-                                         : readline(p);
+        char *line = psh_editor_readline(acc ? "  > " : prompt);
         if (!line) { /* Ctrl-D */
             if (acc) { /* abandon the half-typed construct */
                 fprintf(stderr,
@@ -317,10 +302,8 @@ static void repl_interactive(void)
             puts("exit");
             break;
         }
-        if (*line) {
-            add_history(line);
+        if (*line)
             psh_editor_hist_add(line);
-        }
         if (!acc_append(&acc, line)) {
             free(line);
             continue;

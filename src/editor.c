@@ -29,9 +29,9 @@
  * executing line by line; Enter submits the whole thing, which the
  * lexer already speaks fluently).
  *
- * Opt-in for now: PSH_EDITOR=nut switches from readline to this, live
- * (it's checked every prompt). Readline stays the default until the
- * cockpit reaches feature parity (H4.4).
+ * Since H4.4 the cockpit IS the shell's line editor — readline went
+ * overboard, and the binary is pure MIT. (Not a tty? psh_editor_readline
+ * quietly degrades to getline.)
  */
 #define _XOPEN_SOURCE 700 /* wcwidth */
 
@@ -1076,13 +1076,6 @@ static int do_search(struct el *e)
 }
 
 /* ---------------- the entry points ---------------- */
-
-bool psh_editor_active(void)
-{
-    const char *v = psh_var_get("PSH_EDITOR");
-    return v && strcmp(v, "nut") == 0 &&
-           isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
-}
 
 char *psh_editor_readline(const char *prompt)
 {

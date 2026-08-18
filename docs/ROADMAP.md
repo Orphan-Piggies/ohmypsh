@@ -158,8 +158,11 @@ the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
       (builtin/function/$PATH via psh_path_lookup) and red if not —
       typos glow before Enter; keywords bold; strings yellow; $vars,
       assignments and function-def names cyan; comments grey
-- [ ] H4.4 flip the default, drop -lreadline, un-note the LICENSE,
-      update README/man
+- [x] H4.4 (v0.11.0) the flip: the cockpit IS the editor — readline
+      overboard (LDLIBS empty; the binary depends on libc, full
+      stop), LICENSE un-noted (pure MIT, source AND binaries), CI no
+      longer installs libreadline-dev, README/man updated,
+      PSH_EDITOR retired. complete.c is pure engine now.
 
 ## H5 — seaworthiness (v0.10.0, mostly ✅)
 - [x] LICENSE: MIT (source), with the readline/GPL note for binaries

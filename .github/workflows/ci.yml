@@ -8,9 +8,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install readline
-        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
-
       - name: build (all warnings are errors here)
         run: make CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -Werror -O2 -D_POSIX_C_SOURCE=200809L"
 

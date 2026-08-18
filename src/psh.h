@@ -3,7 +3,7 @@
  *
  * The pipeline of the shell itself (fitting, really):
  *
- *   main.c      the REPL: prompt → read (readline) → run → repeat,
+ *   main.c      the REPL: prompt → read (editor.c) → run → repeat,
  *               plus scripts, -c, ~/.pshrc, multi-line accumulation
  *   lexer.c     raw input → token stream (words kept RAW, quotes and
  *               $(...) intact; newlines are tokens now)
@@ -14,9 +14,9 @@
  *   exec.c      runs the tree: pipelines, jobs, control flow, functions
  *   jobs.c      job control: process groups, tcsetpgrp, Ctrl-Z
  *   builtins.c  commands that must run inside the shell process
- *   complete.c  tab completion
- *   editor.c    the cockpit: hand-rolled raw-mode line editor (H4);
- *               opt-in via PSH_EDITOR=nut while readline is default
+ *   complete.c  tab completion candidates (commands, files)
+ *   editor.c    the cockpit: raw-mode line editor — autosuggestions,
+ *               lexer-driven syntax highlighting, ^R search, ^X^E
  *   pistachio.c 🫛 flavor, banners, and easter pistachios
  *
  * Ordering that mirrors real shells: parse FIRST, expand at EXECUTION
@@ -30,7 +30,7 @@
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.10.0"
+#define PSH_VERSION "0.11.0"
 
 /*
  * The mascot glyph. Unicode has no pistachio emoji (🥜 is officially
@@ -217,16 +217,13 @@ int psh_builtin_fg(char **argv);
 int psh_builtin_bg(char **argv);
 int psh_builtin_wait(char **argv);
 
-/* complete.c — candidate engine (shared by both editors) + glue */
-void psh_completion_init(void); /* readline glue */
+/* complete.c — completion candidate engine */
 char **psh_complete_commands(const char *prefix); /* NULL-term, sorted */
 char **psh_complete_files(const char *word, size_t *base_off);
 void psh_complete_free(char **v);
 
-/* editor.c — the cockpit. Active when PSH_EDITOR=nut (checked every
- * prompt, so it can be toggled live). History is file-compatible with
- * readline's ~/.psh_history. */
-bool psh_editor_active(void);
+/* editor.c — the cockpit, the shell's line editor. History lives in
+ * ~/.psh_history, one entry per line. */
 char *psh_editor_readline(const char *prompt); /* malloc'd, no \n; NULL=EOF */
 void psh_editor_hist_load(const char *path);
 void psh_editor_hist_add(const char *line);

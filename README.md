@@ -11,17 +11,24 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Horizon 2 of [the roadmap](docs/ROADMAP.md) — hardened for scripts:
-`test`/`[` as fork-free builtins, `type` and `command -v`, `set -e`,
-`trap ... EXIT`, and parse errors with line numbers — on a complete
-language: `if`/`elif`/`else`, `while`, `for`, `case`, functions with
-`$1`..`$9` and a true `$@` splat, `local`/`export`/`unset` on a real
-three-tier variable table, `$((...))` arithmetic, `$(...)` command
-substitution, `return`/`break`/`continue`, scripts with shebangs,
-`psh -c`, `source`, multi-line input — on top of full job control
-(`&`, Ctrl-Z, `jobs`/`fg`/`bg`/`wait`), readline editing and history,
-tab completion, `~/.pshrc`, pipelines, redirects, `&&`/`||`,
-globbing and `#` comments.
+Horizon 4 of [the roadmap](docs/ROADMAP.md) — the cockpit: a
+hand-rolled raw-mode line editor with **fish-style autosuggestions**
+(your history, grey, one → away), **syntax highlighting straight
+from the shell's real lexer** (valid commands green, typos red
+before you press Enter, keywords bold, strings yellow), incremental
+Ctrl-R search, tab completion, bracketed paste, multi-line editing,
+and Ctrl-X Ctrl-E to finish the line in your `$EDITOR`. Zero
+dependencies — readline sailed home in v0.11.0.
+
+Underneath: a complete language (`if`/`elif`/`else`, `while`, `for`,
+`case`, functions with `$1`..`$9` and a true `$@` splat,
+`local`/`export`/`unset` on a real three-tier variable table,
+`$((...))` arithmetic, `$(...)` command substitution), hardened for
+scripts (`test`/`[` as fork-free builtins, `type`, `command -v`,
+`set -e`, `trap ... EXIT`, parse errors with line numbers), on top
+of full job control (`&`, Ctrl-Z, `jobs`/`fg`/`bg`/`wait`),
+pipelines, redirects, `&&`/`||`, globbing, `~/.pshrc`, scripts with
+shebangs, `psh -c`, `source`, and `#` comments.
 
 Two founding rules, both real: a `$VAR` NEVER word-splits
 (`F="two words"; rm $F` deletes exactly one file), and `$(...)`
@@ -71,8 +78,8 @@ make test   # runs the smoke tests
 ./psh       # step into the bag
 ```
 
-Requires a C compiler, a POSIX system, and GNU readline
-(`apt install libreadline-dev` / `dnf install readline-devel`).
+Requires a C compiler and a POSIX system. That's the whole list —
+no libraries, no packages, no `-dev` anything.
 
 ## Layout
 
@@ -86,7 +93,9 @@ src/arith.c      the $(( ... )) evaluator
 src/testcmd.c    the test / [ builtin (fork-free conditions)
 src/exec.c       tree walker: pipelines, control flow, functions
 src/jobs.c       job control: process groups, tcsetpgrp, Ctrl-Z
-src/complete.c   tab completion (commands + files)
+src/editor.c     the cockpit: autosuggestions, syntax highlighting,
+                 ^R search, tab completion, ^X^E, bracketed paste
+src/complete.c   completion candidates (commands + files)
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
 omp/             oh-my-psh: themes/, plugins/, install.psh — in psh
@@ -110,8 +119,8 @@ for the manual.
 
 ## License
 
-MIT (see LICENSE). Binaries linked with GNU readline are distributed
-under GPL terms as readline requires.
+MIT (see LICENSE) — source and binaries alike, now that the last
+GPL-licensed link went overboard.
 
 ---
 

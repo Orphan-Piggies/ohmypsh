@@ -1,16 +1,12 @@
 /*
- * complete.c — completion candidates, and the readline glue.
- *
- * Since H4.2 this file has two layers. The ENGINE (readline-free)
- * produces candidate lists and is shared by both line editors:
+ * complete.c — completion candidates for the cockpit (editor.c).
  *
  *   psh_complete_commands  builtins + $PATH names matching a prefix
  *   psh_complete_files     directory entries matching a path prefix
  *                          (dirs get a trailing '/'; understands ~/)
  *
- * The GLUE at the bottom adapts the command engine to readline's
- * generator protocol; readline's own filename completion still serves
- * as its fallback. The glue goes overboard with readline in H4.4.
+ * (Until H4.4 this file also carried readline glue; the cockpit is
+ * the only consumer now.)
  *
  * Candidates don't stat() for the executable bit — bash doesn't
  * either by default, and directory scans should stay cheap.
@@ -23,8 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-
-#include <readline/readline.h>
 
 #include "psh.h"
 
@@ -166,48 +160,3 @@ char **psh_complete_files(const char *word, size_t *base_off)
     return listv_seal(v, n);
 }
 
-/* ---------------- readline glue (retires in H4.4) ---------------- */
-
-/*
- * Readline's generator protocol: called with state==0 to start, then
- * repeatedly; return one malloc'd match per call (readline frees
- * them), NULL when done.
- */
-static char *cmd_generator(const char *text, int state)
-{
-    static char **list;
-    static size_t idx;
-
-    if (state == 0) {
-        list = psh_complete_commands(text);
-        idx = 0;
-    }
-    if (list && list[idx])
-        return list[idx++]; /* ownership moves to readline */
-    free(list);             /* container only; strings were handed out */
-    list = NULL;
-    return NULL;
-}
-
-static char **complete_hook(const char *text, int start, int end)
-{
-    (void)end;
-    /* Command position? Look at the last non-blank before the word:
-     * nothing, or an operator, means a command starts here. */
-    bool cmdpos = true;
-    for (int k = start - 1; k >= 0; k--) {
-        char ch = rl_line_buffer[k];
-        if (ch == ' ' || ch == '\t')
-            continue;
-        cmdpos = (ch == '|' || ch == ';' || ch == '&');
-        break;
-    }
-    if (cmdpos)
-        return rl_completion_matches(text, cmd_generator);
-    return NULL; /* NULL → readline falls back to filename completion */
-}
-
-void psh_completion_init(void)
-{
-    rl_attempted_completion_function = complete_hook;
-}
