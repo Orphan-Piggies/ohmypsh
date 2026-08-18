@@ -39,6 +39,8 @@ echo unique-fnd42\n
 \0022fnd42\n
 head -1 READM\011\n
 \0033[200~echo pasted\necho again\0033[201~\n
+EDITOR="sed -i s/AAA/BBB/"\n
+echo AAA\0030\0005\n
 exit\n
 EOF
 )
@@ -61,6 +63,7 @@ check "tab completes a filename"     "$(has '^# 🫛 psh')"
 check "paste lands without running"  "$(has '^pasted$')"
 n=$(printf '%s\n' "$out" | grep -ac '^again$')
 check "pasted 2nd line runs on ⏎"    "$([ "$n" = 1 ] && echo yes)"
+check "ctrl-x ctrl-e edits in EDITOR" "$(has '^BBB$')"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

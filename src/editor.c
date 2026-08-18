@@ -657,6 +657,74 @@ static void do_complete(struct el *e)
     free(word);
 }
 
+/* ---------------- ^X^E: edit the line in $EDITOR ------------------ */
+
+/*
+ * Hand the buffer to $VISUAL/$EDITOR via a temp file and take back
+ * whatever they saved (zsh-style: it returns TO THE BUFFER, and Enter
+ * submits — bash's execute-on-exit is a touch too much trust in vim
+ * muscle memory). The editor runs through psh_run_string, i.e. the
+ * shell's own pipeline machinery — job control, signals and terminal
+ * handoff all behave exactly as for a typed command.
+ */
+static void do_external_edit(struct el *e)
+{
+    const char *ed = psh_var_get("VISUAL");
+    if (!ed || !*ed)
+        ed = psh_var_get("EDITOR");
+    if (!ed || !*ed)
+        ed = "vi";
+
+    char path[] = "/tmp/psh-edit-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0)
+        return;
+    (void)!write(fd, e->buf, e->len);
+    (void)!write(fd, "\n", 1);
+    close(fd);
+
+    /* step out of the cockpit: paste-mode off, cooked mode, new row */
+    (void)!write(STDOUT_FILENO, "\033[?2004l\n", 9);
+    disable_raw();
+
+    char *cmd = malloc(strlen(ed) + sizeof path + 2);
+    if (cmd) {
+        sprintf(cmd, "%s %s", ed, path);
+        int saved_status = psh_last_status;
+        psh_run_string(cmd);
+        psh_last_status = saved_status; /* editing never touches $? */
+        free(cmd);
+
+        FILE *f = fopen(path, "r");
+        if (f) {
+            char *nb = NULL;
+            size_t n = 0, cap = 0, got;
+            char chunk[4096];
+            while ((got = fread(chunk, 1, sizeof chunk, f)) > 0) {
+                if (n + got + 1 > cap) {
+                    cap = (n + got + 1) * 2;
+                    nb = realloc(nb, cap);
+                }
+                memcpy(nb + n, chunk, got);
+                n += got;
+            }
+            fclose(f);
+            if (nb) {
+                while (n > 0 && nb[n - 1] == '\n')
+                    n--;
+                nb[n] = '\0';
+                el_set(e, nb);
+                free(nb);
+            }
+        }
+    }
+    unlink(path);
+
+    enable_raw();
+    (void)!write(STDOUT_FILENO, "\033[?2004h", 8);
+    e->cur_row = 0; /* repaint fresh wherever the editor left us */
+}
+
 /* ---------------- Ctrl-R: incremental reverse search -------------- */
 
 /* Scan history newest→oldest starting at `start` for `q`; on a hit,
@@ -899,6 +967,12 @@ submit:
             memmove(e.buf + p1, e.buf + p2, p3 - p2);
             memcpy(e.buf + p1 + (p3 - p2), tmp, p2 - p1);
             e.pos = p3;
+            break;
+        }
+        case 24: { /* ^X: chord prefix */
+            unsigned char c2;
+            if (read(STDIN_FILENO, &c2, 1) == 1 && c2 == 5)
+                do_external_edit(&e); /* ^X^E */
             break;
         }
         case 12: /* ^L: clear screen, repaint at the top */

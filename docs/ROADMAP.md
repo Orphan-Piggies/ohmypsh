@@ -147,6 +147,9 @@ the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
       pastes land IN the buffer, Enter submits the lot (renderer
       learned embedded newlines via the cell-walk rewrite — which
       made multi-line EDITING work too)
+- [x] H4.2b ^X^E: edit the line in $VISUAL/$EDITOR (zsh-style — the
+      result returns to the buffer, Enter submits; bash's
+      execute-on-exit trusts vim muscle memory a bit too much)
 - [ ] H4.3 the prizes: grey autosuggestions from history (→ accepts),
       syntax highlighting straight from the real lexer
 - [ ] H4.4 flip the default, drop -lreadline, un-note the LICENSE,
