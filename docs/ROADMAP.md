@@ -36,7 +36,7 @@ never start a milestone until the previous one survives daily poking.
 - [x] expand.c is born: parse first, expand at execution time,
       quote-remove last — the ordering that makes `X=5; echo $X` work
 
-## M4 — daily-driver hardening (mostly ✅)
+## M4 — daily-driver hardening ✅
 - [x] Job control: `&`, Ctrl-Z, `jobs`, `fg [%n]`, `bg`, `wait`
       (process groups, tcsetpgrp, WUNTRACED, per-job termios — see the
       jobs.c header comment for the four-sentence mental model)
@@ -45,9 +45,8 @@ never start a milestone until the previous one survives daily poking.
 - [x] Tab completion: commands (builtins + $PATH) in command position,
       readline's filename completion everywhere else
 - [x] `#` comments (bonus: needed for a civilized .pshrc)
-- [ ] Set as login shell — user ritual, not code:
-      `echo $(pwd)/psh | sudo tee -a /etc/shells && chsh -s $(pwd)/psh`
-      (recommended only after some days of daily driving)
+- [x] Set as login shell — user ritual, not code: performed 2026-08-18.
+      Every terminal now opens into the bag. 🫛
 
 ## M5 — a language ✅
 - [x] `if` / `elif` / `else`, `while`, `for` — recursive-descent
