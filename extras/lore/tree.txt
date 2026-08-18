@@ -1,0 +1,8 @@
+oh-my-pistachio/
+├── README.md          <- Dünyanın ən duzlu sənədi
+├── omp.sh             <- Əsas freymvork nüvəsi
+├── themes/
+│   └── antep.omp-theme <- Premium yaşıl vizual mövzu
+└── plugins/
+    └── shell-shock/   <- Səhv kod yazanda "XIRT" səsi çıxaran plagini
+
