@@ -3,38 +3,56 @@
  *
  * The pipeline of the shell itself (fitting, really):
  *
- *   main.c      the REPL: prompt → read (readline) → run → repeat
- *   lexer.c     raw line → token stream (words kept RAW, quotes intact)
- *   parser.c    tokens → statements → &&/|| lists → pipelines → commands
- *   expand.c    raw word → final strings: $VAR, ~, quote removal, glob
- *   exec.c      runs a syntax tree: builtins, fork/exec, pipes, redirects
- *   builtins.c  commands that must run inside the shell process itself
+ *   main.c      the REPL: prompt → read (readline) → run → repeat,
+ *               plus scripts, -c, ~/.pshrc, multi-line accumulation
+ *   lexer.c     raw input → token stream (words kept RAW, quotes and
+ *               $(...) intact; newlines are tokens now)
+ *   parser.c    recursive descent: tokens → statements — lists,
+ *               if/while/for, function definitions
+ *   expand.c    raw word → final strings: $VAR, $1..$9, $(...), ~,
+ *               quote removal, glob — at execution time
+ *   exec.c      runs the tree: pipelines, jobs, control flow, functions
+ *   jobs.c      job control: process groups, tcsetpgrp, Ctrl-Z
+ *   builtins.c  commands that must run inside the shell process
+ *   complete.c  tab completion
  *   pistachio.c 🫛 flavor, banners, and easter pistachios
  *
- * The order matters and mirrors real shells: parse FIRST, expand at
- * EXECUTION time, remove quotes LAST. That is why `X=5; echo $X`
- * prints 5 — by the time echo's words expand, the assignment ran.
+ * Ordering that mirrors real shells: parse FIRST, expand at EXECUTION
+ * time, remove quotes LAST — why `X=5; echo $X` prints 5.
  */
 #ifndef PSH_H
 #define PSH_H
 
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.4.0"
+#define PSH_VERSION "0.5.0"
 
 /*
- * The mascot glyph, used in the prompt and banners. Unicode has no
- * pistachio emoji (🥜 is officially PEANUTS, U+1F95C — an insult we do
- * not accept), so we use the pea pod: green, lives in a shell, close
- * enough. Rebranding the whole shell is a one-line edit here.
+ * The mascot glyph. Unicode has no pistachio emoji (🥜 is officially
+ * PEANUTS, U+1F95C — an insult we do not accept), so: the pea pod.
+ * Rebranding the whole shell is a one-line edit here.
  */
 #define PSH_NUT "🫛"
 
-/* Exit status of the last command — what $? expands to and what the
- * prompt shows in red. Defined in main.c. */
+/* Exit status of the last command — what $? expands to. main.c. */
 extern int psh_last_status;
+
+/* Set by the interactive SIGINT handler; loops check it and stop. */
+extern volatile sig_atomic_t psh_interrupted;
+
+/* Positional parameters: script args, or the current function's args
+ * while one is running. expand.c reads these for $1..$9, $#, $0. */
+extern char **psh_script_args;
+extern size_t psh_script_argc;
+extern const char *psh_arg0;
+
+/* Run a complete string / a file through lex→parse→execute (main.c).
+ * Incomplete input is an error here ("unexpected end of input"). */
+int psh_run_string(const char *s);
+int psh_run_file(const char *path);
 
 /* ---------------- tokens (lexer.c) ---------------- */
 
@@ -44,7 +62,10 @@ typedef enum {
     TOK_AND,          /* && */
     TOK_OR,           /* || */
     TOK_SEMI,         /* ;  */
-    TOK_AMP,          /* &  — statement terminator meaning "background" */
+    TOK_AMP,          /* &  */
+    TOK_NEWLINE,      /* \n — a separator, except after | && || */
+    TOK_LPAREN,       /* (  — only meaningful in name() definitions */
+    TOK_RPAREN,       /* )  */
     TOK_REDIR_IN,     /* <  */
     TOK_REDIR_OUT,    /* >  */
     TOK_REDIR_APPEND, /* >> */
@@ -53,35 +74,33 @@ typedef enum {
 
 typedef struct psh_token {
     psh_token_type type;
-    char *text; /* TOK_WORD only: the RAW word, quotes still inside */
+    char *text; /* TOK_WORD only: the RAW word, quotes/$() intact */
     struct psh_token *next;
 } psh_token;
 
-/* Returns the token list (NULL for a blank line). On a syntax error,
- * prints a message, sets *err, and returns NULL. */
-psh_token *psh_tokenize(const char *line, bool *err);
+/* Three outcomes: tokens (NULL = blank input), *err with a message
+ * printed, or *incomplete — the input is fine so far but unfinished
+ * (open quote or $( ): the REPL should ask for another line. */
+psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete);
 void psh_tokens_free(psh_token *t);
 
 /* ---------------- syntax tree (parser.c) ---------------- */
 
-/* One command: what to run, plus where its three standard streams go.
- * argv and the redirect paths are RAW words; expand.c finishes them at
- * execution time. Repeated redirects of one kind: last wins, like sh. */
+/* One simple command: argv (raw words) + redirects. */
 typedef struct psh_command {
-    char **argv;  /* NULL-terminated raw words */
+    char **argv;
     size_t argc;
     char *in_path;  /* <  */
     char *out_path; /* > or >> */
     char *err_path; /* 2> */
-    bool append;    /* out_path came from >> */
+    bool append;
     struct psh_command *next; /* next stage of the pipeline */
 } psh_command;
 
-/* How the NEXT element of an &&/|| list is joined to this one. */
 typedef enum {
-    PSH_CONN_END, /* nothing follows */
-    PSH_CONN_AND, /* run next only if this succeeded  (&&) */
-    PSH_CONN_OR,  /* run next only if this failed     (||) */
+    PSH_CONN_END,
+    PSH_CONN_AND, /* && */
+    PSH_CONN_OR,  /* || */
 } psh_conn;
 
 typedef struct psh_andor {
@@ -90,39 +109,56 @@ typedef struct psh_andor {
     struct psh_andor *next;
 } psh_andor;
 
-/* One statement = one &&/|| list. Statements are separated by ';'
- * or by '&', which additionally marks the statement as background. */
+/* A statement is a tagged union: a plain &&/|| list, or one of the
+ * compound commands. Compounds reuse the shared cond/body slots. */
+typedef enum {
+    ST_LIST,    /* list */
+    ST_IF,      /* cond, body (then), else_body — elif nests here */
+    ST_WHILE,   /* cond, body */
+    ST_FOR,     /* name, words[nwords] (raw), body */
+    ST_FUNCDEF, /* name, body */
+} psh_stmt_kind;
+
 typedef struct psh_stmt {
-    psh_andor *list;
-    bool background;
+    psh_stmt_kind kind;
+    bool background;             /* trailing & */
+    psh_andor *list;             /* ST_LIST */
+    struct psh_stmt *cond;       /* ST_IF, ST_WHILE */
+    struct psh_stmt *body;       /* ST_IF then / loop body / function */
+    struct psh_stmt *else_body;  /* ST_IF */
+    char *name;                  /* ST_FOR variable / ST_FUNCDEF name */
+    char **words;                /* ST_FOR raw word list */
+    size_t nwords;
     struct psh_stmt *next;
 } psh_stmt;
 
-psh_stmt *psh_parse(psh_token *tokens, bool *err);
+/* Same three outcomes as the lexer: a tree, an error (printed), or
+ * *incomplete — e.g. an `if` still waiting for its `fi`. */
+psh_stmt *psh_parse(psh_token *tokens, bool *err, bool *incomplete);
 void psh_stmts_free(psh_stmt *s);
 
 /* ---------------- expansion (expand.c) ---------------- */
 
-/* Raw word → NULL-terminated array of final strings. Globbing can
- * fan one word out into many; an unquoted word that expands to
- * nothing vanishes entirely (array of zero). NULL on error. */
 char **psh_expand_word(const char *raw, size_t *out_n);
+char *psh_expand_word_single(const char *raw); /* no glob, no split */
 
-/* Raw word → exactly one final string (no globbing) — for redirect
- * paths and assignment values, where fan-out makes no sense. */
-char *psh_expand_word_single(const char *raw);
+/* ---------------- execution (exec.c) ---------------- */
 
-/* exec.c — run every statement; returns the last one's exit status */
 int psh_execute(psh_stmt *stmts);
+
+/* Control flow raised by the break/continue/return builtins and
+ * consumed by the loop / function executors. */
+typedef enum {
+    PSH_FLOW_NONE,
+    PSH_FLOW_BREAK,
+    PSH_FLOW_CONTINUE,
+    PSH_FLOW_RETURN,
+} psh_flow_t;
+extern psh_flow_t psh_flow;
 
 /* ---------------- jobs (jobs.c) ---------------- */
 
-/* A job = one pipeline (or one background subshell) = one process
- * group. The struct is private to jobs.c. */
 typedef struct psh_job psh_job;
-
-/* True when this is an interactive shell that owns a terminal and
- * plays the process-group game. Off for scripts and pipes. */
 extern bool psh_job_control;
 
 void psh_jobs_init(bool interactive);
@@ -131,27 +167,25 @@ void psh_job_add_pid(psh_job *j, pid_t pid);
 size_t psh_job_npids(const psh_job *j);
 pid_t psh_job_get_pgid(const psh_job *j);
 void psh_job_set_pgid(psh_job *j, pid_t pgid);
-void psh_job_discard(psh_job *j); /* nothing was spawned: forget it */
-/* In the forked child, before exec: join the job's process group,
- * optionally take the terminal, reset job-control signals. */
+void psh_job_discard(psh_job *j);
 void psh_job_child_setup(pid_t pgid, bool foreground);
-int psh_job_foreground(psh_job *j, bool cont); /* wait; returns status */
-void psh_job_background(psh_job *j);           /* announce [n] pgid */
-void psh_jobs_reap(void);   /* silent non-blocking reap of children */
-void psh_jobs_notify(void); /* reap + report Done/Stopped (per prompt) */
+int psh_job_foreground(psh_job *j, bool cont);
+void psh_job_background(psh_job *j);
+void psh_jobs_reap(void);
+void psh_jobs_notify(void);
 int psh_builtin_jobs(char **argv);
 int psh_builtin_fg(char **argv);
 int psh_builtin_bg(char **argv);
 int psh_builtin_wait(char **argv);
 
-/* complete.c — tab completion (commands first word, files elsewhere) */
+/* complete.c */
 void psh_completion_init(void);
 
 /* builtins.c */
 typedef int (*psh_builtin_fn)(char **argv);
 psh_builtin_fn psh_find_builtin(const char *name);
 void psh_list_builtins(void);
-const char *psh_builtin_name(size_t i); /* NULL past the end */
+const char *psh_builtin_name(size_t i);
 
 /* pistachio.c 🫛 */
 void psh_pistachio_hello(void);

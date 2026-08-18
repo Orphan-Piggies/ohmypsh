@@ -49,10 +49,21 @@ never start a milestone until the previous one survives daily poking.
       `echo $(pwd)/psh | sudo tee -a /etc/shells && chsh -s $(pwd)/psh`
       (recommended only after some days of daily driving)
 
-## M5 — a language
-- [ ] `if` / `else`, `for`, `while`, functions
-- [ ] Command substitution: `$(...)`
-- [ ] Scripts: `psh file.psh`, shebang support
+## M5 — a language ✅
+- [x] `if` / `elif` / `else`, `while`, `for` — recursive-descent
+      parser; keywords only special in command position, like sh
+- [x] Functions: `name() { ...; }` with `$1`..`$9`, `$#`, `$0`;
+      functions shadow builtins shadow $PATH
+- [x] `return` / `break` / `continue` (flow flags, no longjmp)
+- [x] Command substitution `$(...)` — splits on NEWLINES only
+      (fish's rule): `for f in $(ls)` iterates lines, $VAR still
+      never splits
+- [x] Multi-line input: parse answers "incomplete" → `  > `
+      continuation prompt interactively, clean error at script EOF
+- [x] Scripts: `psh file.psh args`, shebang (via `#` comments),
+      `psh -c 'cmd'`, `source`/`.` builtin
+- [x] Interactive Ctrl-C interrupts pure-builtin loops
+      (`while true; do true; done` is killable)
 
 ## M6 — oh-my-psh, for real
 - [ ] The name comes full circle: a plugin/theme framework ON psh,

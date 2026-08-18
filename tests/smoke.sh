@@ -192,6 +192,80 @@ check "leading '&' is a syntax error" "2" "$?"
 printf 'fg\n' | $PSH 2>/dev/null
 check "fg without job control fails politely" "1" "$?"
 
+# ---- milestone 5: the language ----
+
+out=$(printf 'if true; then echo yes; else echo no; fi\n' | $PSH)
+check "if / then" "yes" "$out"
+
+out=$(printf 'if false; then echo yes; else echo no; fi\n' | $PSH)
+check "if / else" "no" "$out"
+
+out=$(printf 'if false; then echo a; elif true; then echo b; else echo c; fi\n' | $PSH)
+check "elif" "b" "$out"
+
+out=$(printf 'if true\nthen\necho multi\nfi\n' | $PSH)
+check "multi-line if (accumulated input)" "multi" "$out"
+
+out=$(printf 'N=0; while [ $N != 3 ]; do echo $N; N=$(expr $N + 1); done\n' | $PSH)
+check "while loop with \$( ) in the step" "0
+1
+2" "$out"
+
+out=$(printf 'for x in a b c; do echo x$x; done\n' | $PSH)
+check "for loop" "xa
+xb
+xc" "$out"
+
+out=$(printf '%s\n' 'for i in 1 2 3 4; do if [ $i = 3 ]; then break; fi; echo $i; done' | $PSH)
+check "break" "1
+2" "$out"
+
+out=$(printf '%s\n' 'for i in 1 2 3; do if [ $i = 2 ]; then continue; fi; echo $i; done' | $PSH)
+check "continue" "1
+3" "$out"
+
+out=$(printf 'greet() { echo hello $1; }\ngreet world\n' | $PSH)
+check "function definition and call with \$1" "hello world" "$out"
+
+out=$(printf 'f() { return 3; }\nf\necho $?\n' | $PSH)
+check "return sets the function's status" "3" "$out"
+
+out=$(printf 'f() { echo $#; }\nf a b c\n' | $PSH)
+check "\$# inside a function" "3" "$out"
+
+out=$(printf 'echo $(echo nested)\n' | $PSH)
+check "command substitution" "nested" "$out"
+
+out=$(printf 'D=$(pwd); echo $D\n' | $PSH)
+check "cmdsub into a variable" "$(pwd)" "$out"
+
+out=$(printf '%s\n' 'for f in $(printf "a\nb"); do echo x$f; done' | $PSH)
+check "unquoted cmdsub splits on newlines" "xa
+xb" "$out"
+
+out=$(printf '%s\n' 'echo "$(printf "a\nb")" | wc -l' | $PSH)
+check "quoted cmdsub stays one word (2 lines)" "2" "$out"
+
+out=$(printf '%s\n' 'echo $(printf "a\nb") | wc -l' | $PSH)
+check "unquoted cmdsub joins to one line" "1" "$out"
+
+printf '#!/usr/bin/env psh\necho script-ran $1\n' > "$tmp/s.psh"
+out=$(./psh "$tmp/s.psh" world)
+check "script file with shebang and \$1" "script-ran world" "$out"
+
+out=$(./psh -c 'echo dash-c-works')
+check "psh -c" "dash-c-works" "$out"
+
+printf 'SRCVAR=from-source\n' > "$tmp/lib.psh"
+out=$(printf 'source %s/lib.psh\necho $SRCVAR\n' "$tmp" | $PSH)
+check "source runs in the current shell" "from-source" "$out"
+
+printf 'if true; then\n' | $PSH 2>/dev/null
+check "EOF inside a construct is an error non-interactively" "2" "$?"
+
+out=$(printf 'twice() { echo $1$1; }\ntwice nut | tr a-z A-Z\n' | $PSH)
+check "function inside a pipeline" "NUTNUT" "$out"
+
 rm -rf "$tmp"
 
 echo

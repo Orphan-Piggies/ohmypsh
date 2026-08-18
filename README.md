@@ -11,13 +11,19 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Milestone 4 of [the roadmap](docs/ROADMAP.md) — psh is a daily driver:
-full job control (`&`, Ctrl-Z, `jobs`, `fg`, `bg`, `wait`), readline
-line editing (↑/↓ history, Ctrl-R, Ctrl-L), tab completion (commands
-and filenames), `~/.pshrc`, pipelines, redirects, `&&`/`||`/`;`,
-variables, globbing, `~`, and `#` comments. The founding rule is real:
-`F="two words"; rm $F` deletes exactly one file. Next up: the
-language — `if`, `for`, functions, `$(...)`, scripts.
+Milestone 5 of [the roadmap](docs/ROADMAP.md) — psh is a language:
+`if`/`elif`/`else`, `while`, `for`, functions with `$1`..`$9`,
+`return`/`break`/`continue`, command substitution `$(...)`, scripts
+with shebangs, `psh -c`, `source`, multi-line input with a `  > `
+continuation prompt — on top of full job control (`&`, Ctrl-Z,
+`jobs`/`fg`/`bg`/`wait`), readline editing and history, tab
+completion, `~/.pshrc`, pipelines, redirects, `&&`/`||`, variables,
+globbing and `#` comments.
+
+Two founding rules, both real: a `$VAR` NEVER word-splits
+(`F="two words"; rm $F` deletes exactly one file), and `$(...)`
+splits on newlines only (`for f in $(ls)` iterates lines, spaces in
+filenames survive).
 
 ## Build & run
 
@@ -33,11 +39,11 @@ Requires a C compiler, a POSIX system, and GNU readline
 ## Layout
 
 ```
-src/main.c       the REPL — the loop that IS the shell
-src/lexer.c      line → tokens (words kept raw, | || && ; < > >> 2>)
-src/parser.c     tokens → statements → &&/|| lists → pipelines → commands
-src/expand.c     $VAR, ~, quote removal, globbing — at execution time
-src/exec.c       fork / execvp, pipes, redirects, jobs plumbing
+src/main.c       the REPL, scripts, -c, ~/.pshrc, multi-line input
+src/lexer.c      input → tokens (words raw; quotes and $() intact)
+src/parser.c     recursive descent: if/while/for/functions/lists
+src/expand.c     $VAR, $1..$9, $(...), ~, quote removal, globbing
+src/exec.c       tree walker: pipelines, control flow, functions
 src/jobs.c       job control: process groups, tcsetpgrp, Ctrl-Z
 src/complete.c   tab completion (commands + files)
 src/builtins.c   cd, exit, pwd, help, …

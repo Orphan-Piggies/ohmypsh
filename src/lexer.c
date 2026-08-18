@@ -1,18 +1,20 @@
 /*
- * lexer.c — turn one line of input into a stream of tokens.
+ * lexer.c — turn input text into a stream of tokens.
  *
- * Token kinds:  words,  |  ||  &&  ;  <  >  >>  2>
+ * Token kinds:  words,  |  ||  &&  &  ;  newline  ( )  <  >  >>  2>
  *
- * Since milestone 3 the lexer no longer strips quotes: a word token
- * carries the RAW text, quotes and $ signs intact, and expand.c
- * finishes the job at execution time. The lexer's only quoting duties
- * are (a) letting quoted operator characters stay inside a word —
- * echo "a|b" is one word, no pipe — and (b) rejecting unterminated
- * quotes early.
+ * Words are kept RAW — quotes and $(...) stay inside the token text;
+ * expand.c finishes them at execution time. The lexer's quoting
+ * duties are: quoted operator characters stay in the word (echo "a|b"
+ * is one word), a $( ... ) is one indivisible chunk of its word even
+ * when it contains spaces, pipes or newlines, and an UNFINISHED quote
+ * or $( is reported as *incomplete — not an error — so the REPL can
+ * ask for another line. That one bit is what makes multi-line input
+ * work.
  *
- * `2>` is recognized only at the start of a word, matching sh: in
- * `echo 2> f` the 2 binds to the redirect, but `echo a2> f` is the
- * word "a2" followed by a plain `>`.
+ * Newlines are tokens now (not just whitespace): inside `if`/`for`
+ * they separate commands the way ';' does, and after | && || the
+ * parser skips them so commands can continue across lines.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -40,26 +42,73 @@ static psh_token *tok_append(psh_token **head, psh_token **tail,
     return t;
 }
 
-psh_token *psh_tokenize(const char *line, bool *err)
+/*
+ * Copy "$(" ... ")" verbatim into buf, tracking paren depth and
+ * skipping over quoted stretches (a ')' inside quotes doesn't count).
+ * Returns the position after the closing ')', or NULL if the input
+ * ended first — the "incomplete" case.
+ */
+static const char *scan_cmdsub(const char *p, char *buf, size_t *t)
+{
+    buf[(*t)++] = *p++; /* '$' */
+    buf[(*t)++] = *p++; /* '(' */
+    int depth = 1;
+    while (*p) {
+        char ch = *p;
+        if (ch == '\'' || ch == '"') {
+            buf[(*t)++] = *p++;
+            while (*p && *p != ch)
+                buf[(*t)++] = *p++;
+            if (!*p)
+                return NULL;
+            buf[(*t)++] = *p++;
+            continue;
+        }
+        if (ch == '(')
+            depth++;
+        if (ch == ')') {
+            depth--;
+            if (depth == 0) {
+                buf[(*t)++] = *p++;
+                return p;
+            }
+        }
+        buf[(*t)++] = *p++;
+    }
+    return NULL;
+}
+
+psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
 {
     *err = false;
+    *incomplete = false;
     psh_token *head = NULL, *tail = NULL;
-    /* One token can never be longer than the whole line. */
+    /* One token can never be longer than the whole input. */
     char *buf = malloc(strlen(line) + 1);
     if (!buf)
         goto oom;
 
     const char *p = line;
     while (*p) {
-        while (isspace((unsigned char)*p))
+        while (*p == ' ' || *p == '\t' || *p == '\r')
             p++;
         if (!*p)
             break;
 
-        /* An unquoted '#' at the start of a word comments out the
-         * rest of the line (echo a#b is still one word, like sh). */
-        if (*p == '#')
-            break;
+        if (*p == '\n') {
+            if (!tok_append(&head, &tail, TOK_NEWLINE, NULL))
+                goto oom;
+            p++;
+            continue;
+        }
+
+        /* '#' at the start of a word comments out the rest of the
+         * LINE (not the buffer — later lines still count). */
+        if (*p == '#') {
+            while (*p && *p != '\n')
+                p++;
+            continue;
+        }
 
         int op = -1;
         if (*p == '&' && p[1] == '&') { op = TOK_AND; p += 2; }
@@ -67,6 +116,8 @@ psh_token *psh_tokenize(const char *line, bool *err)
         else if (*p == '|') { op = TOK_PIPE; p += 1; }
         else if (*p == '&') { op = TOK_AMP; p += 1; }
         else if (*p == ';') { op = TOK_SEMI; p += 1; }
+        else if (*p == '(') { op = TOK_LPAREN; p += 1; }
+        else if (*p == ')') { op = TOK_RPAREN; p += 1; }
         else if (*p == '<') { op = TOK_REDIR_IN; p += 1; }
         else if (*p == '>' && p[1] == '>') { op = TOK_REDIR_APPEND; p += 2; }
         else if (*p == '>') { op = TOK_REDIR_OUT; p += 1; }
@@ -78,22 +129,31 @@ psh_token *psh_tokenize(const char *line, bool *err)
             continue;
         }
 
-        /* A word: runs until unquoted whitespace or an operator char.
-         * Quoted stretches are copied VERBATIM, quote marks included —
-         * expansion and quote removal are expand.c's job, later. */
+        /* A word: runs until unquoted whitespace or an operator. */
         size_t t = 0;
-        while (*p && !isspace((unsigned char)*p) && !strchr("|&;<>", *p)) {
-            if (*p == '\'' || *p == '"') {
+        while (*p && *p != '\n' && *p != ' ' && *p != '\t' &&
+               *p != '\r' && !strchr("|&;<>()", *p)) {
+            if (*p == '$' && p[1] == '(') {
+                const char *np = scan_cmdsub(p, buf, &t);
+                if (!np)
+                    goto need_more;
+                p = np;
+            } else if (*p == '\'' || *p == '"') {
                 char quote = *p;
                 buf[t++] = *p++;
-                while (*p && *p != quote)
-                    buf[t++] = *p++;
-                if (!*p) {
-                    fprintf(stderr,
-                            "psh: syntax error: unterminated quote\n");
-                    goto fail;
+                while (*p && *p != quote) {
+                    if (quote == '"' && *p == '$' && p[1] == '(') {
+                        const char *np = scan_cmdsub(p, buf, &t);
+                        if (!np)
+                            goto need_more;
+                        p = np;
+                    } else {
+                        buf[t++] = *p++;
+                    }
                 }
-                buf[t++] = *p++; /* keep the closing quote too */
+                if (!*p)
+                    goto need_more; /* multi-line string: keep typing */
+                buf[t++] = *p++;    /* keep the closing quote */
             } else {
                 buf[t++] = *p++;
             }
@@ -112,10 +172,15 @@ psh_token *psh_tokenize(const char *line, bool *err)
 
 oom:
     fprintf(stderr, "psh: out of memory\n");
-fail:
     free(buf);
     psh_tokens_free(head);
     *err = true;
+    return NULL;
+
+need_more:
+    free(buf);
+    psh_tokens_free(head);
+    *incomplete = true;
     return NULL;
 }
 

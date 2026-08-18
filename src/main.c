@@ -1,14 +1,20 @@
 /*
- * main.c — the REPL (read, evaluate, print, loop).
+ * main.c — the REPL, and every other way input reaches the shell:
  *
- * Milestone 3 swaps getline() for GNU readline when stdin is a
- * terminal, and suddenly the shell feels alive: ↑/↓ history, Ctrl-R
- * search, Ctrl-L clear, Emacs-style line editing — all inherited from
- * the same library bash uses. Non-interactive input (pipes, scripts)
- * keeps the plain getline() path; readline would only get in the way.
+ *   psh              interactive: readline, history, continuation
+ *                    prompts for multi-line constructs
+ *   psh file [args]  run a script; args become $1..$9, $#
+ *   psh -c 'cmd'     run one string and exit
+ *   (piped stdin)    non-interactive line loop
+ *
+ * The interesting M5 change is ACCUMULATION: lexer/parser can answer
+ * "incomplete" instead of "error", meaning the input is fine but
+ * unfinished (an open `if`, quote, or `$( `). Interactively that
+ * shows a `> ` continuation prompt; at a script's EOF it's an error.
  */
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -26,8 +32,12 @@
 #define PATH_MAX 4096
 #endif
 
-/* What $? expands to; also the shell's own exit status. */
 int psh_last_status = 0;
+volatile sig_atomic_t psh_interrupted = 0;
+
+char **psh_script_args = NULL;
+size_t psh_script_argc = 0;
+const char *psh_arg0 = "psh";
 
 static char hist_path[PATH_MAX];
 
@@ -38,13 +48,123 @@ static void save_history(void)
 }
 
 /*
- * Build the prompt string. Shows the current directory (with $HOME
- * shortened to ~) and, when the previous command failed, its status
- * in red — failure should be visible without typing `echo $?`.
- *
- * The \001/\002 bytes bracket the color escapes: they tell readline
- * "these bytes are invisible", so it can compute the prompt's true
- * width. Without them, line editing garbles after the first ↑.
+ * Interactive Ctrl-C: readline installs its own handler while it
+ * reads (aborting the current input line); OURS is active the rest
+ * of the time — i.e. while parent-side loops run — where it sets a
+ * flag the executors poll. That's how `while true; do true; done`
+ * stays killable. Foreground JOBS never need this: the kernel sends
+ * their SIGINT straight to their process group, not to the shell.
+ */
+static void on_sigint(int sig)
+{
+    (void)sig;
+    psh_interrupted = 1;
+}
+
+/* feed() outcomes */
+enum { FEED_DONE, FEED_MORE };
+
+static int feed(const char *buf)
+{
+    bool err = false, incomplete = false;
+    psh_token *tokens = psh_tokenize(buf, &err, &incomplete);
+    if (incomplete)
+        return FEED_MORE;
+    if (err) {
+        psh_last_status = 2;
+        return FEED_DONE;
+    }
+
+    psh_stmt *stmts = psh_parse(tokens, &err, &incomplete);
+    psh_tokens_free(tokens);
+    if (incomplete)
+        return FEED_MORE;
+    if (err) {
+        psh_last_status = 2;
+        return FEED_DONE;
+    }
+
+    if (stmts) {
+        psh_interrupted = 0;
+        psh_last_status = psh_execute(stmts);
+        psh_stmts_free(stmts);
+    }
+    return FEED_DONE;
+}
+
+/* A complete unit of input (command substitution, -c, whole files):
+ * "incomplete" here means the input ended mid-construct — an error. */
+int psh_run_string(const char *s)
+{
+    if (feed(s) == FEED_MORE) {
+        fprintf(stderr, "psh: syntax error: unexpected end of input\n");
+        psh_last_status = 2;
+    }
+    return psh_last_status;
+}
+
+static char *read_whole_file(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return NULL;
+    size_t cap = 4096, len = 0;
+    char *buf = malloc(cap);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    size_t n;
+    while ((n = fread(buf + len, 1, cap - len - 1, f)) > 0) {
+        len += n;
+        if (cap - len < 2) {
+            cap *= 2;
+            char *grown = realloc(buf, cap);
+            if (!grown) {
+                free(buf);
+                fclose(f);
+                return NULL;
+            }
+            buf = grown;
+        }
+    }
+    fclose(f);
+    buf[len] = '\0';
+    return buf;
+}
+
+int psh_run_file(const char *path)
+{
+    char *buf = read_whole_file(path);
+    if (!buf) {
+        fprintf(stderr, "psh: %s: %s\n", path, strerror(errno));
+        psh_last_status = 127;
+        return 127;
+    }
+    int status = psh_run_string(buf);
+    free(buf);
+    return status;
+}
+
+/* ~/.pshrc: run once at interactive startup, exactly as if typed.
+ * The place for greetings, variables, functions — oh-my-psh will
+ * live on top of this file. */
+static void source_pshrc(void)
+{
+    const char *home = getenv("HOME");
+    if (!home)
+        return;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/.pshrc", home);
+    if (access(path, R_OK) == 0)
+        psh_run_file(path);
+}
+
+/*
+ * Build the prompt: cwd with $HOME shortened to ~, and the last
+ * failure status in red. The \001/\002 bytes bracket color escapes
+ * so readline can compute the prompt's true width — without them,
+ * line editing garbles after the first ↑.
  */
 static void build_prompt(char *out, size_t outsz)
 {
@@ -72,106 +192,130 @@ static void build_prompt(char *out, size_t outsz)
                  disp, psh_last_status);
 }
 
-static void run_line(const char *line)
+/* Append `line` plus a newline to the accumulation buffer. */
+static bool acc_append(char **acc, const char *line)
 {
-    /* lex → parse → execute; each stage reports its own errors */
-    bool err = false;
-    psh_token *tokens = psh_tokenize(line, &err);
-    if (err) {
-        psh_last_status = 2;
-        return;
-    }
-
-    psh_stmt *stmts = psh_parse(tokens, &err);
-    psh_tokens_free(tokens);
-    if (err) {
-        psh_last_status = 2;
-        return;
-    }
-
-    if (stmts) { /* NULL = blank line: nothing to do */
-        psh_last_status = psh_execute(stmts);
-        psh_stmts_free(stmts);
-    }
+    size_t old = *acc ? strlen(*acc) : 0;
+    char *grown = realloc(*acc, old + strlen(line) + 2);
+    if (!grown)
+        return false;
+    if (!old)
+        grown[0] = '\0';
+    strcat(grown, line);
+    strcat(grown, "\n");
+    *acc = grown;
+    return true;
 }
 
-/* ~/.pshrc: run once at interactive startup, line by line, exactly as
- * if typed. The place for greetings, variables and (someday) themes —
- * oh-my-psh will live on top of this file. */
-static void source_pshrc(void)
+static void repl_interactive(void)
 {
+    psh_pistachio_hello();
+    psh_completion_init();
+
     const char *home = getenv("HOME");
-    if (!home)
-        return;
-    char path[PATH_MAX];
-    snprintf(path, sizeof path, "%s/.pshrc", home);
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return; /* no file, no problem */
-    char *line = NULL;
-    size_t cap = 0;
-    while (getline(&line, &cap, f) >= 0)
-        run_line(line);
-    free(line);
-    fclose(f);
-}
+    if (home) {
+        snprintf(hist_path, sizeof hist_path, "%s/.psh_history", home);
+        read_history(hist_path);
+        stifle_history(1000);
+        /* atexit catches BOTH exit paths: Ctrl-D and the `exit`
+         * builtin (which calls exit() from deep in builtins.c). */
+        atexit(save_history);
+    }
 
-int main(void)
-{
-    bool interactive = isatty(STDIN_FILENO);
+    source_pshrc();
 
-    /*
-     * The shell itself must survive Ctrl-C; only the command it is
-     * currently running should die. So the shell ignores SIGINT here,
-     * and each child restores the default action after fork. The
-     * job-control signals (SIGTSTP & friends) are handled by
-     * psh_jobs_init, which also claims a process group and the
-     * terminal when interactive.
-     */
-    signal(SIGINT, SIG_IGN);
-    signal(SIGQUIT, SIG_IGN);
-    psh_jobs_init(interactive);
-
-    if (interactive) {
-        psh_pistachio_hello();
-        psh_completion_init();
-        source_pshrc();
-
-        const char *home = getenv("HOME");
-        if (home) {
-            snprintf(hist_path, sizeof hist_path, "%s/.psh_history", home);
-            read_history(hist_path);
-            stifle_history(1000);
-            /* atexit catches BOTH exit paths: Ctrl-D and the `exit`
-             * builtin (which calls exit() from deep in builtins.c). */
-            atexit(save_history);
-        }
-
-        char prompt[PATH_MAX + 64];
-        for (;;) {
-            /* Deliver the news first: background jobs that finished
-             * or stopped since the last prompt. */
+    char prompt[PATH_MAX + 64];
+    char *acc = NULL; /* multi-line command being accumulated */
+    for (;;) {
+        if (!acc) {
             psh_jobs_notify();
             build_prompt(prompt, sizeof prompt);
-            char *line = readline(prompt);
-            if (!line) { /* Ctrl-D on an empty line */
-                puts("exit");
-                break;
-            }
-            if (*line)
-                add_history(line);
-            run_line(line);
-            free(line);
         }
-    } else {
-        char *line = NULL;
-        size_t linecap = 0;
-        while (getline(&line, &linecap, stdin) >= 0) {
-            run_line(line);
-            psh_jobs_reap(); /* keep zombies from piling up */
+        char *line = readline(acc ? "  > " : prompt);
+        if (!line) { /* Ctrl-D */
+            if (acc) { /* abandon the half-typed construct */
+                fprintf(stderr,
+                        "psh: syntax error: unexpected end of input\n");
+                free(acc);
+                acc = NULL;
+                psh_last_status = 2;
+                continue;
+            }
+            puts("exit");
+            break;
+        }
+        if (*line)
+            add_history(line);
+        if (!acc_append(&acc, line)) {
+            free(line);
+            continue;
         }
         free(line);
+        if (feed(acc) == FEED_DONE) {
+            free(acc);
+            acc = NULL;
+        }
     }
+    free(acc);
+}
+
+static void repl_stdin(void)
+{
+    char *line = NULL, *acc = NULL;
+    size_t linecap = 0;
+    while (getline(&line, &linecap, stdin) >= 0) {
+        if (!acc_append(&acc, line))
+            continue;
+        if (feed(acc) == FEED_DONE) {
+            free(acc);
+            acc = NULL;
+        }
+        psh_jobs_reap(); /* keep zombies from piling up */
+    }
+    if (acc) { /* EOF mid-construct */
+        fprintf(stderr, "psh: syntax error: unexpected end of input\n");
+        psh_last_status = 2;
+        free(acc);
+    }
+    free(line);
+}
+
+int main(int argc, char **argv)
+{
+    /* psh -c 'commands' [args...] */
+    if (argc >= 3 && strcmp(argv[1], "-c") == 0) {
+        psh_script_args = argv + 3;
+        psh_script_argc = (size_t)(argc - 3);
+        psh_jobs_init(false);
+        return psh_run_string(argv[2]);
+    }
+
+    /* psh script [args...] — shebang lines are '#' comments already */
+    if (argc >= 2) {
+        psh_arg0 = argv[1];
+        psh_script_args = argv + 2;
+        psh_script_argc = (size_t)(argc - 2);
+        psh_jobs_init(false);
+        return psh_run_file(argv[1]);
+    }
+
+    bool interactive = isatty(STDIN_FILENO);
+    if (interactive) {
+        /* Flag-setting SIGINT handler (see on_sigint); quit ignored. */
+        struct sigaction sa = { 0 };
+        sa.sa_handler = on_sigint;
+        sigaction(SIGINT, &sa, NULL);
+        signal(SIGQUIT, SIG_IGN);
+    }
+    /* Non-interactive: default dispositions — a script dies on
+     * Ctrl-C like any other program, which is what callers expect. */
+
+    psh_jobs_init(interactive);
+
+    if (interactive)
+        repl_interactive();
+    else
+        repl_stdin();
 
     return psh_last_status;
 }

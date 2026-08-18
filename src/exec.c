@@ -9,6 +9,11 @@
  *   M4: every pipeline is now a JOB (see jobs.c). Foreground jobs own
  *       the terminal while they run; `cmd &` skips the wait entirely;
  *       a whole `a && b &` list runs inside one forked subshell.
+ *   M5: the tree grew if/while/for/funcdef nodes; this file walks
+ *       them. Control flow (break/continue/return) travels as a flag
+ *       the builtins raise and the loop/function executors consume —
+ *       no longjmp gymnastics needed. Functions live in a name→body
+ *       table; calling one runs its body with $1..$9 swapped in.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -23,6 +28,71 @@
 #include <unistd.h>
 
 #include "psh.h"
+
+psh_flow_t psh_flow = PSH_FLOW_NONE;
+
+static int run_stmts(psh_stmt *s);
+
+/* ---------------- functions ---------------- */
+
+typedef struct fentry {
+    char *name;
+    psh_stmt *body;
+    struct fentry *next;
+} fentry;
+
+static fentry *functions;
+
+static psh_stmt *func_lookup(const char *name)
+{
+    for (fentry *f = functions; f; f = f->next)
+        if (strcmp(f->name, name) == 0)
+            return f->body;
+    return NULL;
+}
+
+static void func_define(const char *name, psh_stmt *body)
+{
+    for (fentry *f = functions; f; f = f->next) {
+        if (strcmp(f->name, name) == 0) {
+            psh_stmts_free(f->body); /* redefinition replaces */
+            f->body = body;
+            return;
+        }
+    }
+    fentry *f = malloc(sizeof *f);
+    if (!f) {
+        psh_stmts_free(body);
+        return;
+    }
+    f->name = strdup(name);
+    f->body = body;
+    f->next = functions;
+    functions = f;
+}
+
+/* Run a function body with $1..$9/$# pointing at ITS arguments;
+ * restore the caller's afterwards (so recursion just works). A
+ * `return` raises PSH_FLOW_RETURN, which stops the body's statement
+ * walk and is absorbed here — the function boundary. */
+static int call_function(psh_stmt *body, char **argv)
+{
+    char **saved_args = psh_script_args;
+    size_t saved_argc = psh_script_argc;
+    size_t n = 0;
+    while (argv[n])
+        n++;
+    psh_script_args = argv + 1;
+    psh_script_argc = n ? n - 1 : 0;
+
+    int status = run_stmts(body);
+    if (psh_flow == PSH_FLOW_RETURN)
+        psh_flow = PSH_FLOW_NONE;
+
+    psh_script_args = saved_args;
+    psh_script_argc = saved_argc;
+    return status;
+}
 
 static void free_strv(char **v)
 {
@@ -195,12 +265,13 @@ static int apply_redirs(const psh_command *c)
 }
 
 /*
- * A lone builtin must run in the shell process (that's what makes it
- * a builtin) — so to honor `pwd > file` we temporarily rewire the
- * SHELL'S own fds and put them back afterwards.
+ * A lone builtin or function call must run in the shell process
+ * (that's what makes it able to cd, set flow flags, define things) —
+ * so to honor `pwd > file` we temporarily rewire the SHELL'S own fds
+ * and put them back afterwards. Exactly one of fn/funcbody is set.
  */
-static int run_builtin_in_parent(psh_builtin_fn fn, const psh_command *c,
-                                 char **fargv)
+static int run_builtin_in_parent(psh_builtin_fn fn, psh_stmt *funcbody,
+                                 const psh_command *c, char **fargv)
 {
     int saved[3] = { -1, -1, -1 };
     if (c->in_path)
@@ -210,7 +281,11 @@ static int run_builtin_in_parent(psh_builtin_fn fn, const psh_command *c,
     if (c->err_path)
         saved[2] = dup(STDERR_FILENO);
 
-    int status = (apply_redirs(c) < 0) ? 1 : fn(fargv);
+    int status;
+    if (apply_redirs(c) < 0)
+        status = 1;
+    else
+        status = fn ? fn(fargv) : call_function(funcbody, fargv);
 
     /* Flush BEFORE restoring, or buffered output lands on the old fd. */
     fflush(stdout);
@@ -250,13 +325,15 @@ static int try_run_in_parent(const psh_command *c)
         return 0;
     }
 
-    psh_builtin_fn fn = psh_find_builtin(fargv[0]);
-    if (!fn) {
+    /* Functions shadow builtins, builtins shadow $PATH — sh's order. */
+    psh_stmt *funcbody = func_lookup(fargv[0]);
+    psh_builtin_fn fn = funcbody ? NULL : psh_find_builtin(fargv[0]);
+    if (!fn && !funcbody) {
         free_strv(fargv);
         return -1;
     }
     apply_assignments(c, na); /* `A=1 cd /x`: rare, but honor it */
-    int status = run_builtin_in_parent(fn, c, fargv);
+    int status = run_builtin_in_parent(fn, funcbody, c, fargv);
     free_strv(fargv);
     return status;
 }
@@ -338,6 +415,9 @@ static int run_pipeline(const psh_command *first, bool background)
             if (!fargv[0])
                 _exit(0); /* redirect-only command: `> file` */
 
+            psh_stmt *funcbody = func_lookup(fargv[0]);
+            if (funcbody) /* function in a pipeline: runs right here */
+                _exit(call_function(funcbody, fargv) & 0xff);
             psh_builtin_fn fn = psh_find_builtin(fargv[0]);
             if (fn)
                 _exit(fn(fargv) & 0xff);
@@ -403,17 +483,21 @@ static int run_andor(psh_andor *list)
     return status;
 }
 
+static int run_stmt_foreground(psh_stmt *s);
+
 /*
- * `a & ` backgrounds a single pipeline directly. `a && b &` must
- * background the WHOLE list, so it runs inside one forked subshell —
+ * `cmd &` backgrounds a single pipeline directly. Anything bigger —
+ * an &&/|| list, a loop, an if — runs inside one forked subshell,
  * which is also exactly what bash does.
  */
-static int run_background_stmt(psh_stmt *s)
+static int run_stmt_background(psh_stmt *s)
 {
-    if (s->list->conn == PSH_CONN_END)
+    if (s->kind == ST_LIST && s->list->conn == PSH_CONN_END)
         return run_pipeline(s->list->pipeline, true);
 
-    psh_job *job = psh_job_create(andor_to_string(s->list));
+    char *desc = s->kind == ST_LIST ? andor_to_string(s->list)
+                                    : strdup("(background job)");
+    psh_job *job = psh_job_create(desc);
     if (!job)
         return 1;
 
@@ -426,7 +510,7 @@ static int run_background_stmt(psh_stmt *s)
     if (pid == 0) {
         psh_job_child_setup(0, false);
         psh_job_control = false; /* the subshell plays no terminal games */
-        _exit(run_andor(s->list) & 0xff);
+        _exit(run_stmt_foreground(s) & 0xff);
     }
     psh_job_set_pgid(job, pid);
     if (psh_job_control)
@@ -436,13 +520,101 @@ static int run_background_stmt(psh_stmt *s)
     return 0;
 }
 
-int psh_execute(psh_stmt *stmts)
+static int run_stmt_foreground(psh_stmt *s)
+{
+    switch (s->kind) {
+
+    case ST_LIST:
+        return run_andor(s->list);
+
+    case ST_IF: {
+        int c = run_stmts(s->cond);
+        if (psh_flow != PSH_FLOW_NONE)
+            return c;
+        if (c == 0)
+            return run_stmts(s->body);
+        return s->else_body ? run_stmts(s->else_body) : 0;
+    }
+
+    case ST_WHILE: {
+        int status = 0;
+        for (;;) {
+            if (psh_interrupted)
+                return 130;
+            int c = run_stmts(s->cond);
+            if (psh_flow != PSH_FLOW_NONE || c != 0)
+                break;
+            status = run_stmts(s->body);
+            if (psh_flow == PSH_FLOW_BREAK) {
+                psh_flow = PSH_FLOW_NONE;
+                break;
+            }
+            if (psh_flow == PSH_FLOW_CONTINUE)
+                psh_flow = PSH_FLOW_NONE;
+            else if (psh_flow == PSH_FLOW_RETURN)
+                break; /* propagate up to the function boundary */
+        }
+        return status;
+    }
+
+    case ST_FOR: {
+        int status = 0;
+        bool stop = false;
+        for (size_t i = 0; i < s->nwords && !stop; i++) {
+            size_t k;
+            char **vals = psh_expand_word(s->words[i], &k);
+            if (!vals)
+                return 1;
+            for (size_t j = 0; j < k && !stop; j++) {
+                if (psh_interrupted) {
+                    status = 130;
+                    stop = true;
+                    break;
+                }
+                setenv(s->name, vals[j], 1);
+                status = run_stmts(s->body);
+                if (psh_flow == PSH_FLOW_BREAK) {
+                    psh_flow = PSH_FLOW_NONE;
+                    stop = true;
+                } else if (psh_flow == PSH_FLOW_CONTINUE) {
+                    psh_flow = PSH_FLOW_NONE;
+                } else if (psh_flow == PSH_FLOW_RETURN) {
+                    stop = true;
+                }
+            }
+            free_strv(vals);
+        }
+        return status;
+    }
+
+    case ST_FUNCDEF:
+        /* Steal the body subtree from the AST — the definition
+         * outlives this line, the rest of the tree doesn't. */
+        func_define(s->name, s->body);
+        s->body = NULL;
+        return 0;
+    }
+    return 0;
+}
+
+static int run_stmts(psh_stmt *s)
 {
     int status = psh_last_status;
-    for (psh_stmt *s = stmts; s; s = s->next) {
-        status = s->background ? run_background_stmt(s)
-                               : run_andor(s->list);
+    for (; s; s = s->next) {
+        if (psh_interrupted) {
+            status = 130;
+            break;
+        }
+        status = s->background ? run_stmt_background(s)
+                               : run_stmt_foreground(s);
         psh_last_status = status;
+        if (psh_flow != PSH_FLOW_NONE)
+            break; /* break/continue/return bubbles up */
     }
     return status;
+}
+
+int psh_execute(psh_stmt *stmts)
+{
+    return run_stmts(stmts);
 }

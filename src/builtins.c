@@ -74,6 +74,37 @@ static int bi_pwd(char **argv)
     return 0;
 }
 
+/* Control flow: raise a flag; the executors in exec.c consume it.
+ * `return` also carries a status (default: the current $?). */
+static int bi_return(char **argv)
+{
+    psh_flow = PSH_FLOW_RETURN;
+    return argv[1] ? atoi(argv[1]) & 0xff : psh_last_status;
+}
+
+static int bi_break(char **argv)
+{
+    (void)argv;
+    psh_flow = PSH_FLOW_BREAK;
+    return 0;
+}
+
+static int bi_continue(char **argv)
+{
+    (void)argv;
+    psh_flow = PSH_FLOW_CONTINUE;
+    return 0;
+}
+
+static int bi_source(char **argv)
+{
+    if (!argv[1]) {
+        fprintf(stderr, "psh: source: filename required\n");
+        return 2;
+    }
+    return psh_run_file(argv[1]);
+}
+
 static int bi_help(char **argv)
 {
     (void)argv;
@@ -96,6 +127,11 @@ static const struct {
     { "fg",    psh_builtin_fg,    "bring a job to the foreground (fg [%n])" },
     { "bg",    psh_builtin_bg,    "continue a stopped job in the background" },
     { "wait",  psh_builtin_wait,  "wait for all background jobs to finish" },
+    { "source",   bi_source,      "run a file in THIS shell (also: .)" },
+    { ".",        bi_source,      "alias for source" },
+    { "return",   bi_return,      "return from a function (return [n])" },
+    { "break",    bi_break,       "exit the enclosing loop" },
+    { "continue", bi_continue,    "next iteration of the enclosing loop" },
     { "help",  bi_help,           "this text" },
     { "crack", psh_builtin_crack, "???" },
 };
