@@ -14,6 +14,7 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -88,6 +89,11 @@ static int feed(const char *buf)
         psh_interrupted = 0;
         psh_last_status = psh_execute(stmts);
         psh_stmts_free(stmts);
+        /* A top-level `return` stops this unit of input (that's how
+         * `return` in a SOURCED file works); it must not leak into
+         * the next line. Function returns never reach here — they're
+         * absorbed at the function boundary. */
+        psh_flow = PSH_FLOW_NONE;
     }
     return FEED_DONE;
 }
@@ -151,7 +157,7 @@ int psh_run_file(const char *path)
  * live on top of this file. */
 static void source_pshrc(void)
 {
-    const char *home = getenv("HOME");
+    const char *home = psh_var_get("HOME");
     if (!home)
         return;
     char path[PATH_MAX];
@@ -161,18 +167,66 @@ static void source_pshrc(void)
 }
 
 /*
- * Build the prompt: cwd with $HOME shortened to ~, and the last
+ * Themed prompt: if PSH_PROMPT is set, the prompt is that template
+ * EXPANDED FRESH each time — $VAR and $(...) run per prompt, which is
+ * the entire mechanism behind oh-my-psh themes ($(git_branch) in your
+ * prompt is just command substitution). After expansion, `\e` becomes
+ * ESC and `\n` a newline, and every escape sequence is wrapped in
+ * \001/\002 so readline can compute the prompt's true visible width.
+ */
+static bool themed_prompt(char *out, size_t outsz)
+{
+    const char *tpl = psh_var_get("PSH_PROMPT");
+    if (!tpl || !*tpl)
+        return false;
+    char *x = psh_expand_word_single(tpl);
+    if (!x)
+        return false;
+
+    size_t o = 0;
+    const char *p = x;
+    while (*p && o + 8 < outsz) {
+        if (*p == '\033' || (p[0] == '\\' && p[1] == 'e')) {
+            out[o++] = '\001'; /* "invisible from here..." */
+            out[o++] = '\033';
+            p += (*p == '\033') ? 1 : 2;
+            while (*p && o + 4 < outsz) { /* copy up to the final letter */
+                char c = *p++;
+                out[o++] = c;
+                if (isalpha((unsigned char)c))
+                    break;
+            }
+            out[o++] = '\002'; /* "...to here" */
+        } else if (p[0] == '\\' && p[1] == 'n') {
+            out[o++] = '\n';
+            p += 2;
+        } else if (p[0] == '\\' && p[1] == '\\') {
+            out[o++] = '\\';
+            p += 2;
+        } else {
+            out[o++] = *p++;
+        }
+    }
+    out[o] = '\0';
+    free(x);
+    return true;
+}
+
+/*
+ * Default prompt: cwd with $HOME shortened to ~, and the last
  * failure status in red. The \001/\002 bytes bracket color escapes
  * so readline can compute the prompt's true width — without them,
  * line editing garbles after the first ↑.
  */
 static void build_prompt(char *out, size_t outsz)
 {
+    if (themed_prompt(out, outsz))
+        return;
     char cwd[PATH_MAX];
     if (!getcwd(cwd, sizeof cwd))
         strcpy(cwd, "?");
 
-    const char *home = getenv("HOME");
+    const char *home = psh_var_get("HOME");
     size_t hlen = home ? strlen(home) : 0;
     const char *disp = cwd;
     char shortened[PATH_MAX + 2];
@@ -212,7 +266,7 @@ static void repl_interactive(void)
     psh_pistachio_hello();
     psh_completion_init();
 
-    const char *home = getenv("HOME");
+    const char *home = psh_var_get("HOME");
     if (home) {
         snprintf(hist_path, sizeof hist_path, "%s/.psh_history", home);
         read_history(hist_path);
@@ -228,6 +282,14 @@ static void repl_interactive(void)
     char *acc = NULL; /* multi-line command being accumulated */
     for (;;) {
         if (!acc) {
+            /* The oh-my-psh event hook: plugins define omp_precmd and
+             * it runs before every prompt. $? is preserved so the
+             * prompt (and the user) still see the real last status. */
+            if (psh_function_exists("omp_precmd")) {
+                int saved = psh_last_status;
+                psh_run_string("omp_precmd");
+                psh_last_status = saved;
+            }
             psh_jobs_notify();
             build_prompt(prompt, sizeof prompt);
         }

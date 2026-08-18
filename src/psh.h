@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.5.0"
+#define PSH_VERSION "0.7.0"
 
 /*
  * The mascot glyph. Unicode has no pistachio emoji (🥜 is officially
@@ -54,6 +54,21 @@ extern const char *psh_arg0;
 int psh_run_string(const char *s);
 int psh_run_file(const char *path);
 
+/* ---------------- variables (vars.c) ---------------- */
+/* Three tiers: function locals → shell vars → environment. Children
+ * inherit only the environment; `export` promotes into it. */
+const char *psh_var_get(const char *name); /* NULL if unset anywhere */
+void psh_var_set(const char *name, const char *value);
+void psh_var_export(const char *name);
+void psh_var_unset(const char *name);
+void psh_var_make_local(const char *name, const char *value);
+bool psh_vars_in_function(void);
+void psh_vars_push_scope(void); /* called around function bodies */
+void psh_vars_pop_scope(void);
+
+/* arith.c — the $(( ... )) evaluator */
+long long psh_arith_eval(const char *expr, bool *err);
+
 /* ---------------- tokens (lexer.c) ---------------- */
 
 typedef enum {
@@ -62,6 +77,7 @@ typedef enum {
     TOK_AND,          /* && */
     TOK_OR,           /* || */
     TOK_SEMI,         /* ;  */
+    TOK_DSEMI,        /* ;; — ends a case item */
     TOK_AMP,          /* &  */
     TOK_NEWLINE,      /* \n — a separator, except after | && || */
     TOK_LPAREN,       /* (  — only meaningful in name() definitions */
@@ -116,8 +132,16 @@ typedef enum {
     ST_IF,      /* cond, body (then), else_body — elif nests here */
     ST_WHILE,   /* cond, body */
     ST_FOR,     /* name, words[nwords] (raw), body */
+    ST_CASE,    /* name (raw subject), case_items */
     ST_FUNCDEF, /* name, body */
 } psh_stmt_kind;
+
+typedef struct psh_case_item {
+    char **patterns; /* raw; fnmatch'd against the subject at run time */
+    size_t npatterns;
+    struct psh_stmt *body; /* may be NULL: empty item */
+    struct psh_case_item *next;
+} psh_case_item;
 
 typedef struct psh_stmt {
     psh_stmt_kind kind;
@@ -126,9 +150,10 @@ typedef struct psh_stmt {
     struct psh_stmt *cond;       /* ST_IF, ST_WHILE */
     struct psh_stmt *body;       /* ST_IF then / loop body / function */
     struct psh_stmt *else_body;  /* ST_IF */
-    char *name;                  /* ST_FOR variable / ST_FUNCDEF name */
+    char *name;                  /* ST_FOR var / ST_FUNCDEF / ST_CASE subject */
     char **words;                /* ST_FOR raw word list */
     size_t nwords;
+    psh_case_item *case_items;   /* ST_CASE */
     struct psh_stmt *next;
 } psh_stmt;
 
@@ -145,6 +170,9 @@ char *psh_expand_word_single(const char *raw); /* no glob, no split */
 /* ---------------- execution (exec.c) ---------------- */
 
 int psh_execute(psh_stmt *stmts);
+
+/* True if a shell function with this name is defined (for hooks). */
+bool psh_function_exists(const char *name);
 
 /* Control flow raised by the break/continue/return builtins and
  * consumed by the loop / function executors. */

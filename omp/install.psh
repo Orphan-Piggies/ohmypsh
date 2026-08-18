@@ -1,0 +1,28 @@
+#!/usr/bin/env psh
+# oh-my-psh installer — a psh script, run by psh, installing psh's
+# own framework. Usage, from the repo root:
+#
+#   ./psh omp/install.psh
+#
+# (The 2020s-era install.sh in extras/lore/ walked so this could run.)
+
+if grep -q oh-my-psh $HOME/.pshrc 2> /dev/null; then
+    echo "omp: artıq quraşdırılıb — already installed in ~/.pshrc"
+    return 0
+fi
+
+echo "[*] oh-my-psh quraşdırılır..."
+sleep 1
+echo "[*] Kodlar qovrulur..."
+sleep 1
+
+echo ""                                  >> $HOME/.pshrc
+echo "# 🫛 oh-my-psh"                    >> $HOME/.pshrc
+echo "OMP_DIR=$PWD/omp"                  >> $HOME/.pshrc
+echo "OMP_THEME=antep"                   >> $HOME/.pshrc
+echo 'OMP_PLUGINS="basics git shell-shock"' >> $HOME/.pshrc
+echo 'source $OMP_DIR/omp.psh'           >> $HOME/.pshrc
+
+echo "[+] Uğurla quraşdırıldı! Sistem indi duzludur."
+echo "    now start ./psh — it reads ~/.pshrc on startup."
+echo "    (note: ~/.pshrc is psh config; don't source it from zsh/bash)"

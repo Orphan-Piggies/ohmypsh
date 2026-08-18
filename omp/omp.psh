@@ -1,0 +1,53 @@
+#!/usr/bin/env psh
+# 🫛 oh-my-psh — the framework that named the shell.
+#
+# This file is written IN psh, running ON psh. The circle is closed.
+#
+# Load it from ~/.pshrc:
+#
+#   OMP_DIR=$HOME/Projects/ohmypsh/omp
+#   OMP_THEME=antep
+#   OMP_PLUGINS="basics git shell-shock"
+#   source $OMP_DIR/omp.psh
+
+if [ "$OMP_DIR" = "" ]; then
+    echo "omp: set OMP_DIR before sourcing omp.psh"
+    return 1
+fi
+
+# ---- prompt segments (stubs; plugins and themes build on these) ----
+# Themes may reference any segment without caring which plugins are
+# enabled: the stub prints nothing, a plugin overrides it with life.
+
+__omp_git_prompt() { true; }
+
+# Red [status] segment when the last command failed. Note the order:
+# capture $? FIRST — the test command itself would overwrite it.
+__omp_status() {
+    __OMP_S=$?
+    if [ $__OMP_S != 0 ]; then
+        echo " \e[31m[$__OMP_S]\e[0m"
+    fi
+}
+
+# ---- plugins ----
+# OMP_PLUGINS is space-separated. psh variables never split, so we
+# convert spaces to newlines and let $( ) do the honest, newline-only
+# split. This one line is the psh philosophy in miniature.
+for __omp_p in $(echo $OMP_PLUGINS | tr " " "\n"); do
+    if [ -f $OMP_DIR/plugins/$__omp_p.psh ]; then
+        source $OMP_DIR/plugins/$__omp_p.psh
+    else
+        echo "omp: plugin not found: $__omp_p"
+    fi
+done
+
+# ---- theme ----
+if [ "$OMP_THEME" = "" ]; then
+    OMP_THEME=antep
+fi
+if [ -f $OMP_DIR/themes/$OMP_THEME.psh ]; then
+    source $OMP_DIR/themes/$OMP_THEME.psh
+else
+    echo "omp: theme not found: $OMP_THEME"
+fi

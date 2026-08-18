@@ -65,6 +65,61 @@ never start a milestone until the previous one survives daily poking.
 - [x] Interactive Ctrl-C interrupts pure-builtin loops
       (`while true; do true; done` is killable)
 
-## M6 — oh-my-psh, for real
-- [ ] The name comes full circle: a plugin/theme framework ON psh,
-      written IN psh. Antep Mode ships as the default theme.
+## M6 — oh-my-psh, for real ✅
+- [x] The name comes full circle: a plugin/theme framework ON psh,
+      written IN psh (`omp/`). Antep Mode ships as the default theme.
+- [x] C-side enablers: PSH_PROMPT (template re-expanded per prompt —
+      $( ) in your prompt is just command substitution), the
+      omp_precmd hook, top-level `return` in sourced files
+- [x] Themes: antep (green + git branch + status segment), plain
+- [x] Plugins: basics (ll/la/mkcd), git (branch segment + gs/gl/gd),
+      shell-shock ("XIRT!" after failures — the founding prophecy)
+- [x] `./psh omp/install.psh` — the installer, itself a psh script
+
+# ⛵ Endless Horizons
+
+The original roadmap is complete; these are the seas beyond. Decided
+2026-08-18: sail H1 first, on a REAL variable table; keep readline
+for now; license chosen when H5 approaches (note: linking GNU
+readline requires a GPL-compatible choice).
+
+## H1 — finish the language ✅ (v0.7.0)
+- [x] Real variable table (vars.c): locals → shell vars → environ;
+      `export` promotes; children inherit only exported ones;
+      inherited env names (PATH...) stay exported on assignment
+- [x] `local` — dynamic scope, restored on return; a local shadowing
+      an env-visible name mirrors into the environ for the call
+- [x] `export`, `unset` builtins
+- [x] `$@` splat — a word that IS $@ expands to a LIST, one word per
+      argument, never re-split; embedded $@ joins with spaces
+- [x] `case ... esac` — fnmatch patterns, `a|b)` alternation,
+      optional `(`, last `;;` optional
+- [x] `$((...))` arithmetic (arith.c): + - * / % comparisons && ||,
+      bare variable names, long long — `$(expr ...)` retired
+
+## H2 — scripting hardening
+- [ ] `test` / `[` as builtins (every `if` currently forks)
+- [ ] `type` / `command -v` builtin — H3's plugins need tool detection
+- [ ] `set -e` strict mode; `trap` on EXIT
+- [ ] Parse errors with line numbers
+
+## H3 — the omp plugin fleet (developer hacks)
+- [ ] `omp` CLI: `omp list`, `omp enable <plugin>`, `omp theme <t>`
+- [ ] `omp_chpwd` hook (fires on directory change; pure psh)
+- [ ] python plugin: venv AUTO-ACTIVATION on cd, venv prompt segment
+- [ ] django/flask: `manage.py` & `flask` shortcuts, runserver helpers
+- [ ] rails: `r*` shortcuts, `bin/rails` detection
+- [ ] docker: ps/logs/exec shortcuts, container-count segment
+- [ ] npm/node: version segment, run-script shortcuts
+- [ ] git plugin v2: dirty-state marker (✗), ahead/behind arrows
+
+## H4 — the cockpit (parked, revisit after H1–H3)
+- [ ] Hand-rolled raw-mode line editor → fish-style autosuggestions
+      and syntax highlighting; drops the readline dependency
+
+## H5 — seaworthiness (public release)
+- [ ] LICENSE (decide then; must be GPL-compatible while readline
+      is linked), README polish, Antep Mode screenshots
+- [ ] CI: GitHub Actions running `make test` on push
+- [ ] valgrind/leak pass; fuzz the parser with garbage input
+- [ ] man page; packaging (deb / AUR)

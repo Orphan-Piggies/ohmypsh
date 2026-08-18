@@ -11,19 +11,37 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Milestone 5 of [the roadmap](docs/ROADMAP.md) — psh is a language:
-`if`/`elif`/`else`, `while`, `for`, functions with `$1`..`$9`,
-`return`/`break`/`continue`, command substitution `$(...)`, scripts
-with shebangs, `psh -c`, `source`, multi-line input with a `  > `
-continuation prompt — on top of full job control (`&`, Ctrl-Z,
-`jobs`/`fg`/`bg`/`wait`), readline editing and history, tab
-completion, `~/.pshrc`, pipelines, redirects, `&&`/`||`, variables,
+Horizon 1 of [the roadmap](docs/ROADMAP.md) — the language is
+complete: `if`/`elif`/`else`, `while`, `for`, `case`, functions with
+`$1`..`$9` and a true `$@` splat, `local`/`export`/`unset` on a real
+three-tier variable table, `$((...))` arithmetic, `$(...)` command
+substitution, `return`/`break`/`continue`, scripts with shebangs,
+`psh -c`, `source`, multi-line input — on top of full job control
+(`&`, Ctrl-Z, `jobs`/`fg`/`bg`/`wait`), readline editing and history,
+tab completion, `~/.pshrc`, pipelines, redirects, `&&`/`||`,
 globbing and `#` comments.
 
 Two founding rules, both real: a `$VAR` NEVER word-splits
 (`F="two words"; rm $F` deletes exactly one file), and `$(...)`
 splits on newlines only (`for f in $(ls)` iterates lines, spaces in
 filenames survive).
+
+## 🫛 oh-my-psh
+
+The framework this project was named for — written in psh, running
+on psh. Themes are prompt templates re-expanded on every prompt;
+plugins are sourced files of functions; `omp_precmd` runs before
+each prompt. Install it into your `~/.pshrc`:
+
+```sh
+./psh omp/install.psh
+```
+
+Ships with the **antep** theme (maximum green, git branch, red
+failure status) and three plugins: **basics** (`ll`, `la`, `mkcd`),
+**git** (branch in the prompt, `gs`/`gl`/`gd`), and **shell-shock**,
+which — as the founding documents foretold — goes *XIRT!* when a
+command fails.
 
 ## Build & run
 
@@ -42,12 +60,15 @@ Requires a C compiler, a POSIX system, and GNU readline
 src/main.c       the REPL, scripts, -c, ~/.pshrc, multi-line input
 src/lexer.c      input → tokens (words raw; quotes and $() intact)
 src/parser.c     recursive descent: if/while/for/functions/lists
-src/expand.c     $VAR, $1..$9, $(...), ~, quote removal, globbing
+src/expand.c     $VAR, $1..$9, $@, $(...), $((...)), ~, quotes, glob
+src/vars.c       locals → shell vars → environ; export / local / unset
+src/arith.c      the $(( ... )) evaluator
 src/exec.c       tree walker: pipelines, control flow, functions
 src/jobs.c       job control: process groups, tcsetpgrp, Ctrl-Z
 src/complete.c   tab completion (commands + files)
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
+omp/             oh-my-psh: themes/, plugins/, install.psh — in psh
 docs/ROADMAP.md  where this is going
 extras/lore/     the sacred founding documents (oh-my-pistachio era)
 ```

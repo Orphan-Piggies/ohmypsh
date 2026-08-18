@@ -1,0 +1,6 @@
+# 🫛 Antep Mode — the premium green theme, as foretold by the
+# founding documents ("Terminal piksellərini maksimum yaşıl rəngə
+# kökləyir"). Single quotes keep the $( ) segments UNEXPANDED here;
+# the shell expands the template fresh for every prompt.
+
+PSH_PROMPT='🫛 \e[32m$(basename $PWD)\e[0m$(__omp_git_prompt)$(__omp_status) \e[32m$\e[0m '

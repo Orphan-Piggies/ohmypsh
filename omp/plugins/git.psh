@@ -1,0 +1,12 @@
+# git — a yellow (branch) in the prompt, plus short spells.
+
+__omp_git_prompt() {
+    __OMP_B=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
+    if [ "$__OMP_B" != "" ]; then
+        echo " (\e[33m$__OMP_B\e[0m)"
+    fi
+}
+
+gs() { git status $1; }
+gl() { git log --oneline -15; }
+gd() { git diff $1 $2; }

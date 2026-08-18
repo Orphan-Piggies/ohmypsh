@@ -266,6 +266,63 @@ check "EOF inside a construct is an error non-interactively" "2" "$?"
 out=$(printf 'twice() { echo $1$1; }\ntwice nut | tr a-z A-Z\n' | $PSH)
 check "function inside a pipeline" "NUTNUT" "$out"
 
+# ---- H1: variable table, local, export, $@, case, arithmetic ----
+
+out=$(printf 'X=5; printenv X\ntrue\n' | $PSH)
+check "plain assignment is NOT exported (the leak is sealed)" "" "$out"
+
+out=$(printf 'X=5; export X; printenv X\n' | $PSH)
+check "export promotes to the environment" "5" "$out"
+
+out=$(printf 'export Y=7; printenv Y\n' | $PSH)
+check "export NAME=value" "7" "$out"
+
+out=$(PATH_TEST=inherited $PSH -c 'PATH_TEST=updated; printenv PATH_TEST')
+check "inherited env names stay exported on assignment" "updated" "$out"
+
+out=$(printf 'f() { local X=inner; echo $X; }\nX=outer\nf\necho $X\n' | $PSH)
+check "local shadows, then restores" "inner
+outer" "$out"
+
+out=$(printf 'f() { local X=only; }\nf\necho [$X]\n' | $PSH)
+check "locals die at function return" "[]" "$out"
+
+out=$(printf 'g() { echo $V; }\nf() { local V=dyn; g; }\nf\n' | $PSH)
+check "dynamic scoping: callee sees caller's local" "dyn" "$out"
+
+out=$(printf 'X=5; unset X; echo [$X]\n' | $PSH)
+check "unset removes a variable" "[]" "$out"
+
+out=$(printf 'f() { printf "[%%s]" $@; echo; }\nf a "b c" d\n' | $PSH)
+check "\$@ splat keeps arguments whole" "[a][b c][d]" "$out"
+
+out=$(printf 'g() { echo $#; }\nf() { g $@; }\nf a b c\n' | $PSH)
+check "\$@ forwards argument count intact" "3" "$out"
+
+out=$(printf 'case nut.c in *.psh) echo shell;; *.c) echo cfile;; *) echo other;; esac\n' | $PSH)
+check "case matches a glob pattern" "cfile" "$out"
+
+out=$(printf 'case hello in a|hello|b) echo alt;; esac\n' | $PSH)
+check "case pattern alternation with |" "alt" "$out"
+
+out=$(printf 'case zzz in *.c) echo no;; esac\necho after $?\n' | $PSH)
+check "case with no match: status 0, life goes on" "after 0" "$out"
+
+out=$(printf 'echo $((2 + 3 * 4))\n' | $PSH)
+check "arithmetic precedence" "14" "$out"
+
+out=$(printf 'N=5; echo $((N * 2 - 1))\n' | $PSH)
+check "arithmetic reads variables bare" "9" "$out"
+
+out=$(printf 'N=0\nwhile [ $((N < 3)) = 1 ]; do echo $N; N=$((N + 1)); done\n' | $PSH)
+check "arithmetic loop (expr retired)" "0
+1
+2" "$out"
+
+out=$(printf 'echo $((10 / 0))\n' | $PSH 2>/dev/null; echo x$?)
+check "division by zero cracks loudly, not fatally" "
+x0" "$out"
+
 rm -rf "$tmp"
 
 echo

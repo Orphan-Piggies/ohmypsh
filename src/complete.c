@@ -53,7 +53,7 @@ static char **collect_commands(const char *prefix)
         if (strncmp(psh_builtin_name(i), prefix, plen) == 0)
             listv_add(&v, &n, &cap, psh_builtin_name(i));
 
-    const char *path = getenv("PATH");
+    const char *path = psh_var_get("PATH");
     char *copy = path ? strdup(path) : NULL;
     if (copy) {
         for (char *dir = strtok(copy, ":"); dir; dir = strtok(NULL, ":")) {

@@ -21,7 +21,12 @@ src/%.o: src/%.c src/psh.h
 test: psh
 	sh tests/smoke.sh
 
+PREFIX ?= /usr/local
+
+install: psh
+	install -m 755 psh $(PREFIX)/bin/psh
+
 clean:
 	rm -f psh $(OBJ)
 
-.PHONY: test clean
+.PHONY: test install clean

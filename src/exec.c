@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,11 @@ static psh_stmt *func_lookup(const char *name)
         if (strcmp(f->name, name) == 0)
             return f->body;
     return NULL;
+}
+
+bool psh_function_exists(const char *name)
+{
+    return func_lookup(name) != NULL;
 }
 
 static void func_define(const char *name, psh_stmt *body)
@@ -84,11 +90,13 @@ static int call_function(psh_stmt *body, char **argv)
         n++;
     psh_script_args = argv + 1;
     psh_script_argc = n ? n - 1 : 0;
+    psh_vars_push_scope(); /* a home for this call's `local`s */
 
     int status = run_stmts(body);
     if (psh_flow == PSH_FLOW_RETURN)
         psh_flow = PSH_FLOW_NONE;
 
+    psh_vars_pop_scope(); /* locals die; shadowed environ restored */
     psh_script_args = saved_args;
     psh_script_argc = saved_argc;
     return status;
@@ -124,15 +132,22 @@ static size_t count_leading_assignments(const psh_command *c)
 }
 
 /* Apply the first n assignment words. The VALUE side is expanded
- * (so A=$HOME/src works) but never globbed or split. */
-static void apply_assignments(const psh_command *c, size_t n)
+ * (so A=$HOME/src works) but never globbed or split. In the parent,
+ * assignments go through the variable table; in a forked child about
+ * to exec (`A=1 cmd`), straight into the environ — that process's
+ * whole world is the environment, and it dies with the variable. */
+static void apply_assignments(const psh_command *c, size_t n, bool to_env)
 {
     for (size_t i = 0; i < n; i++) {
         const char *eq = strchr(c->argv[i], '=');
         char *name = strndup(c->argv[i], (size_t)(eq - c->argv[i]));
         char *val = psh_expand_word_single(eq + 1);
-        if (name && val)
-            setenv(name, val, 1);
+        if (name && val) {
+            if (to_env)
+                setenv(name, val, 1);
+            else
+                psh_var_set(name, val);
+        }
         free(name);
         free(val);
     }
@@ -310,7 +325,7 @@ static int try_run_in_parent(const psh_command *c)
     /* Pure assignment(s), no command, no redirects: set and done. */
     if (na == c->argc && c->argc > 0 && !c->in_path && !c->out_path &&
         !c->err_path) {
-        apply_assignments(c, na);
+        apply_assignments(c, na, false);
         return 0;
     }
     if (na == c->argc)
@@ -321,7 +336,7 @@ static int try_run_in_parent(const psh_command *c)
         return 1;
     if (!fargv[0]) { /* every word expanded away: nothing to run */
         free_strv(fargv);
-        apply_assignments(c, na);
+        apply_assignments(c, na, false);
         return 0;
     }
 
@@ -332,7 +347,7 @@ static int try_run_in_parent(const psh_command *c)
         free_strv(fargv);
         return -1;
     }
-    apply_assignments(c, na); /* `A=1 cd /x`: rare, but honor it */
+    apply_assignments(c, na, false); /* `A=1 cd /x`: rare, but honor it */
     int status = run_builtin_in_parent(fn, funcbody, c, fargv);
     free_strv(fargv);
     return status;
@@ -397,7 +412,7 @@ static int run_pipeline(const psh_command *first, bool background)
 
             /* `A=1 cmd`: the child setenvs, execs, and takes the
              * variable to its grave — per-command env for free. */
-            apply_assignments(c, na);
+            apply_assignments(c, na, true);
 
             /* Wire the pipeline first, explicit redirects second. */
             if (prev_read >= 0) {
@@ -571,7 +586,7 @@ static int run_stmt_foreground(psh_stmt *s)
                     stop = true;
                     break;
                 }
-                setenv(s->name, vals[j], 1);
+                psh_var_set(s->name, vals[j]);
                 status = run_stmts(s->body);
                 if (psh_flow == PSH_FLOW_BREAK) {
                     psh_flow = PSH_FLOW_NONE;
@@ -584,6 +599,29 @@ static int run_stmt_foreground(psh_stmt *s)
             }
             free_strv(vals);
         }
+        return status;
+    }
+
+    case ST_CASE: {
+        char *subject = psh_expand_word_single(s->name);
+        if (!subject)
+            return 1;
+        int status = 0;
+        for (psh_case_item *item = s->case_items; item;
+             item = item->next) {
+            bool matched = false;
+            for (size_t i = 0; i < item->npatterns && !matched; i++) {
+                char *pat = psh_expand_word_single(item->patterns[i]);
+                if (pat && fnmatch(pat, subject, 0) == 0)
+                    matched = true;
+                free(pat);
+            }
+            if (matched) {
+                status = item->body ? run_stmts(item->body) : 0;
+                break; /* first match wins; no ;& fallthrough */
+            }
+        }
+        free(subject);
         return status;
     }
 

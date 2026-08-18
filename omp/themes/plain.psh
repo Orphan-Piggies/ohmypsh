@@ -1,0 +1,3 @@
+# plain — for people who put their pistachios in alphabetical order.
+
+PSH_PROMPT='psh$(__omp_status) $ '

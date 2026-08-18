@@ -25,9 +25,9 @@ static int bi_cd(char **argv)
 {
     const char *target = argv[1];
     if (!target)
-        target = getenv("HOME");            /* bare `cd` goes home */
+        target = psh_var_get("HOME");       /* bare `cd` goes home */
     else if (strcmp(target, "-") == 0) {
-        target = getenv("OLDPWD");          /* `cd -` bounces back */
+        target = psh_var_get("OLDPWD");     /* `cd -` bounces back */
         if (!target) {
             fprintf(stderr, "psh: cd: OLDPWD not set\n");
             return 1;
@@ -47,12 +47,64 @@ static int bi_cd(char **argv)
         return 1;
     }
 
-    /* Keep OLDPWD/PWD in sync so `cd -` and child programs see them. */
-    if (had_old)
-        setenv("OLDPWD", oldpwd, 1);
+    /* Keep OLDPWD/PWD in sync — and exported, so child programs see
+     * them too (many tools read $PWD). */
+    if (had_old) {
+        psh_var_set("OLDPWD", oldpwd);
+        psh_var_export("OLDPWD");
+    }
     char newpwd[PATH_MAX];
-    if (getcwd(newpwd, sizeof newpwd))
-        setenv("PWD", newpwd, 1);
+    if (getcwd(newpwd, sizeof newpwd)) {
+        psh_var_set("PWD", newpwd);
+        psh_var_export("PWD");
+    }
+    return 0;
+}
+
+/* export / local / unset — the visible face of the variable table. */
+static int bi_export(char **argv)
+{
+    for (size_t i = 1; argv[i]; i++) {
+        char *eq = strchr(argv[i], '=');
+        if (eq) { /* export X=v : set, then promote */
+            char *name = strndup(argv[i], (size_t)(eq - argv[i]));
+            if (name) {
+                psh_var_set(name, eq + 1);
+                psh_var_export(name);
+                free(name);
+            }
+        } else {
+            psh_var_export(argv[i]);
+        }
+    }
+    return 0;
+}
+
+static int bi_local(char **argv)
+{
+    if (!psh_vars_in_function()) {
+        fprintf(stderr, "psh: local: only meaningful inside a function\n");
+        return 1;
+    }
+    for (size_t i = 1; argv[i]; i++) {
+        char *eq = strchr(argv[i], '=');
+        if (eq) {
+            char *name = strndup(argv[i], (size_t)(eq - argv[i]));
+            if (name) {
+                psh_var_make_local(name, eq + 1);
+                free(name);
+            }
+        } else {
+            psh_var_make_local(argv[i], NULL);
+        }
+    }
+    return 0;
+}
+
+static int bi_unset(char **argv)
+{
+    for (size_t i = 1; argv[i]; i++)
+        psh_var_unset(argv[i]);
     return 0;
 }
 
@@ -127,6 +179,9 @@ static const struct {
     { "fg",    psh_builtin_fg,    "bring a job to the foreground (fg [%n])" },
     { "bg",    psh_builtin_bg,    "continue a stopped job in the background" },
     { "wait",  psh_builtin_wait,  "wait for all background jobs to finish" },
+    { "export",   bi_export,      "make a variable visible to children" },
+    { "local",    bi_local,       "function-scoped variable" },
+    { "unset",    bi_unset,       "remove a variable" },
     { "source",   bi_source,      "run a file in THIS shell (also: .)" },
     { ".",        bi_source,      "alias for source" },
     { "return",   bi_return,      "return from a function (return [n])" },

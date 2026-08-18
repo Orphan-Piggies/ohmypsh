@@ -104,6 +104,16 @@ void psh_stmts_free(psh_stmt *s)
         for (size_t i = 0; i < s->nwords; i++)
             free(s->words[i]);
         free(s->words);
+        psh_case_item *it = s->case_items;
+        while (it) {
+            psh_case_item *itn = it->next;
+            for (size_t i = 0; i < it->npatterns; i++)
+                free(it->patterns[i]);
+            free(it->patterns);
+            psh_stmts_free(it->body);
+            free(it);
+            it = itn;
+        }
         free(s);
         s = next;
     }
@@ -472,6 +482,94 @@ bad:
     return NULL;
 }
 
+static psh_stmt *parse_case(P *p)
+{
+    advance(p); /* 'case' */
+    psh_stmt *s = stmt_new(ST_CASE);
+    if (!s) {
+        fail(p, "out of memory");
+        return NULL;
+    }
+    if (!p->cur || p->cur->type != TOK_WORD) {
+        fail_or_more(p, "expected a word after 'case'");
+        goto bad;
+    }
+    s->name = strdup(p->cur->text); /* the raw subject */
+    advance(p);
+    skip_newlines(p);
+    if (!at_word(p, "in")) {
+        fail_or_more(p, "expected 'in' after the 'case' subject");
+        goto bad;
+    }
+    advance(p);
+
+    psh_case_item *tail = NULL;
+    for (;;) {
+        skip_separators(p);
+        if (!p->cur) {
+            p->incomplete = true;
+            goto bad;
+        }
+        if (at_word(p, "esac")) {
+            advance(p);
+            return s;
+        }
+
+        /* one item:  [ '(' ] pattern ('|' pattern)* ')' stmts [';;'] */
+        psh_case_item *item = calloc(1, sizeof *item);
+        if (!item) {
+            fail(p, "out of memory");
+            goto bad;
+        }
+        if (tail)
+            tail->next = item;
+        else
+            s->case_items = item;
+        tail = item;
+
+        if (p->cur->type == TOK_LPAREN)
+            advance(p); /* optional opening paren, as in sh */
+        for (;;) {
+            if (!p->cur || p->cur->type != TOK_WORD) {
+                fail_or_more(p, "expected a pattern in 'case'");
+                goto bad;
+            }
+            char **grown = realloc(item->patterns,
+                                   (item->npatterns + 1) *
+                                       sizeof *item->patterns);
+            if (!grown) {
+                fail(p, "out of memory");
+                goto bad;
+            }
+            item->patterns = grown;
+            item->patterns[item->npatterns] = strdup(p->cur->text);
+            item->npatterns++;
+            advance(p);
+            if (p->cur && p->cur->type == TOK_PIPE) {
+                advance(p); /* a|b) — alternation */
+                continue;
+            }
+            break;
+        }
+        if (!p->cur || p->cur->type != TOK_RPAREN) {
+            fail_or_more(p, "expected ')' after the case pattern");
+            goto bad;
+        }
+        advance(p);
+
+        item->body = parse_stmts(p, (const char *[]){ "esac", NULL });
+        if (p->err || p->incomplete)
+            goto bad;
+        /* body may be NULL: an empty item is legal */
+        if (p->cur && p->cur->type == TOK_DSEMI)
+            advance(p); /* the last item before esac may omit ;; */
+    }
+
+bad:
+    psh_stmts_free(s);
+    return NULL;
+}
+
 static psh_stmt *parse_funcdef(P *p)
 {
     psh_stmt *s = stmt_new(ST_FUNCDEF);
@@ -521,6 +619,8 @@ static psh_stmt *parse_stmt(P *p)
         return parse_while(p);
     if (at_word(p, "for"))
         return parse_for(p);
+    if (at_word(p, "case"))
+        return parse_case(p);
     if (p->cur && p->cur->type == TOK_WORD && is_name(p->cur->text) &&
         p->cur->next && p->cur->next->type == TOK_LPAREN)
         return parse_funcdef(p);
@@ -534,6 +634,8 @@ static psh_stmt *parse_stmts(P *p, const char **stops)
         skip_separators(p);
         if (!p->cur)
             break;
+        if (p->cur->type == TOK_DSEMI)
+            break; /* ';;' ends a case item; the case parser eats it */
         if (stops && p->cur->type == TOK_WORD &&
             word_in(p->cur->text, stops))
             break;
@@ -556,7 +658,7 @@ static psh_stmt *parse_stmts(P *p, const char **stops)
         /* After a statement only a separator, a stop word, or the end
          * may follow; anything else (a stray ')' say) is an error. */
         if (p->cur && p->cur->type != TOK_SEMI &&
-            p->cur->type != TOK_NEWLINE &&
+            p->cur->type != TOK_NEWLINE && p->cur->type != TOK_DSEMI &&
             !(stops && p->cur->type == TOK_WORD &&
               word_in(p->cur->text, stops))) {
             fail(p, "unexpected token");

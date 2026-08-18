@@ -115,6 +115,7 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
         else if (*p == '|' && p[1] == '|') { op = TOK_OR; p += 2; }
         else if (*p == '|') { op = TOK_PIPE; p += 1; }
         else if (*p == '&') { op = TOK_AMP; p += 1; }
+        else if (*p == ';' && p[1] == ';') { op = TOK_DSEMI; p += 2; }
         else if (*p == ';') { op = TOK_SEMI; p += 1; }
         else if (*p == '(') { op = TOK_LPAREN; p += 1; }
         else if (*p == ')') { op = TOK_RPAREN; p += 1; }

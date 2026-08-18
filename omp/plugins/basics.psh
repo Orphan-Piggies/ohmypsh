@@ -1,0 +1,7 @@
+# basics — the aliases everyone rewrites, as psh functions.
+# Unquoted empty expansions vanish, so `ll` with no argument is
+# just `ls -lF` — no "$@" incantations required.
+
+ll() { ls -lF $1 $2; }
+la() { ls -A $1 $2; }
+mkcd() { mkdir -p $1 && cd $1; }

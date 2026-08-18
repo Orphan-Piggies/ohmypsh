@@ -148,8 +148,28 @@ static const char *cmdsub_end(const char *p)
  */
 static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
 {
-    char num[24];
+    char num[32];
 
+    if (*p == '(' && p[1] == '(') { /* $(( arithmetic )) */
+        const char *end = cmdsub_end(p + 2); /* the first closing ')' */
+        if (end[0] == ')' && end[1] == ')') {
+            char *inner = strndup(p + 2, (size_t)(end - (p + 2)));
+            if (inner) {
+                bool aerr = false;
+                long long v = psh_arith_eval(inner, &aerr);
+                if (aerr) {
+                    fprintf(stderr, "psh: $(( %s )): bad expression\n",
+                            inner);
+                } else {
+                    snprintf(num, sizeof num, "%lld", v);
+                    sb_puts(b, num);
+                }
+                free(inner);
+            }
+            return end + 2;
+        }
+        /* only one closing paren: fall through — it's a cmdsub */
+    }
     if (*p == '(') { /* command substitution */
         const char *end = cmdsub_end(p + 1);
         char *inner = strndup(p + 1, (size_t)(end - (p + 1)));
@@ -159,6 +179,16 @@ static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
             fl->had_cmdsub = true;
         }
         return *end ? end + 1 : end;
+    }
+    if (*p == '@') { /* embedded $@: args joined by spaces. A word
+                        that is EXACTLY $@ never reaches here — it
+                        splats into a real list in psh_expand_word. */
+        for (size_t i = 0; i < psh_script_argc; i++) {
+            sb_puts(b, psh_script_args[i]);
+            if (i + 1 < psh_script_argc)
+                sb_putc(b, ' ');
+        }
+        return p + 1;
     }
     if (*p == '?') {
         snprintf(num, sizeof num, "%d", psh_last_status);
@@ -211,7 +241,7 @@ static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
     memcpy(name, start, n);
     name[n] = '\0';
 
-    const char *val = getenv(name);
+    const char *val = psh_var_get(name); /* locals → shell → environ */
     if (val)
         sb_puts(b, val);
     return braced ? end + 1 : end;
@@ -232,7 +262,7 @@ static char *expand_core(const char *raw, xflags *fl)
 
     const char *p = raw;
     if (p[0] == '~' && (p[1] == '/' || p[1] == '\0')) {
-        const char *home = getenv("HOME");
+        const char *home = psh_var_get("HOME");
         sb_puts(&b, home ? home : "~");
         p++;
     }
@@ -312,6 +342,19 @@ static bool add_globbed(char ***v, size_t *n, size_t *cap,
 
 char **psh_expand_word(const char *raw, size_t *out_n)
 {
+    /* The splat: a word that IS $@ (or "$@") becomes one word per
+     * argument — a real list, nothing re-split, spaces intact. This
+     * is what makes `wrapper() { real-tool $@; }` simply correct. */
+    if (strcmp(raw, "$@") == 0 || strcmp(raw, "\"$@\"") == 0) {
+        char **v = calloc(psh_script_argc + 1, sizeof *v);
+        if (!v)
+            return NULL;
+        for (size_t i = 0; i < psh_script_argc; i++)
+            v[i] = strdup(psh_script_args[i]);
+        *out_n = psh_script_argc;
+        return v;
+    }
+
     xflags fl;
     char *s = expand_core(raw, &fl);
     if (!s)
