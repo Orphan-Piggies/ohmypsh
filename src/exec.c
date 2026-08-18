@@ -1,20 +1,14 @@
 /*
  * exec.c — run a syntax tree.
  *
- * The milestone-2 core is unchanged: a pipeline is a loop of
+ * The core is unchanged since M2: a pipeline is a loop of
  * pipe() + fork() + dup2() + execvp(), all stages concurrent, exit
- * status taken from the last stage. Milestone 3 adds three things:
+ * status taken from the last stage. What changed per milestone:
  *
- *   - &&/|| lists: run pipelines left to right, SKIPPING those whose
- *     condition isn't met. Skipping preserves the status, which is
- *     what makes `false && a || b` correctly run b.
- *
- *   - expansion: argv and redirect paths arrive RAW from the parser
- *     and are finished by expand.c only at the moment of execution.
- *
- *   - assignments: a leading `NAME=value` word is not an argument.
- *     `A=1` alone sets A in the shell; `A=1 cmd` sets it only for
- *     that one command (we setenv in the child, which forgets it).
+ *   M3: &&/|| lists, execution-time expansion, NAME=value assignments.
+ *   M4: every pipeline is now a JOB (see jobs.c). Foreground jobs own
+ *       the terminal while they run; `cmd &` skips the wait entirely;
+ *       a whole `a && b &` list runs inside one forked subshell.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -111,6 +105,53 @@ static char **expand_command_argv(const psh_command *c, size_t skip)
     return out;
 }
 
+/* The raw command text, rebuilt for `jobs` listings. */
+static char *pipeline_to_string(const psh_command *first)
+{
+    size_t len = 1;
+    for (const psh_command *c = first; c; c = c->next) {
+        for (size_t i = 0; i < c->argc; i++)
+            len += strlen(c->argv[i]) + 1;
+        len += 3;
+    }
+    char *s = malloc(len);
+    if (!s)
+        return NULL;
+    s[0] = '\0';
+    for (const psh_command *c = first; c; c = c->next) {
+        for (size_t i = 0; i < c->argc; i++) {
+            strcat(s, c->argv[i]);
+            if (i + 1 < c->argc)
+                strcat(s, " ");
+        }
+        if (c->next)
+            strcat(s, " | ");
+    }
+    return s;
+}
+
+static char *andor_to_string(const psh_andor *list)
+{
+    char *s = pipeline_to_string(list->pipeline);
+    for (const psh_andor *a = list; s && a->conn != PSH_CONN_END;) {
+        const char *sym = a->conn == PSH_CONN_AND ? " && " : " || ";
+        a = a->next;
+        char *piece = pipeline_to_string(a->pipeline);
+        if (!piece)
+            break;
+        char *grown = realloc(s, strlen(s) + strlen(sym) + strlen(piece) + 1);
+        if (!grown) {
+            free(piece);
+            break;
+        }
+        s = grown;
+        strcat(s, sym);
+        strcat(s, piece);
+        free(piece);
+    }
+    return s;
+}
+
 /*
  * Splice this command's redirect files onto fd 0/1/2. Paths are
  * expanded here (so `> $LOG` and `< ~/notes` work) but never globbed.
@@ -183,17 +224,6 @@ static int run_builtin_in_parent(psh_builtin_fn fn, const psh_command *c,
     return status;
 }
 
-static int wait_status_to_exit(int wstatus)
-{
-    if (WIFSIGNALED(wstatus)) {
-        int sig = WTERMSIG(wstatus);
-        if (sig == SIGINT)
-            fputc('\n', stdout); /* land the next prompt on a fresh line */
-        return 128 + sig; /* bash convention: killed by signal N → 128+N */
-    }
-    return WEXITSTATUS(wstatus);
-}
-
 /*
  * Single-stage fast paths that must NOT fork: pure assignments and
  * builtins. Returns the status, or -1 meaning "use the fork path".
@@ -231,15 +261,9 @@ static int try_run_in_parent(const psh_command *c)
     return status;
 }
 
-static int run_pipeline(const psh_command *first)
+static int run_pipeline(const psh_command *first, bool background)
 {
-    /*
-     * A lone builtin runs in-process — the only way `cd` and `exit`
-     * can affect the shell. A builtin INSIDE a pipeline runs in a
-     * forked child instead, which is why `cd /tmp | cat` moves nobody
-     * in psh, bash, or zsh.
-     */
-    if (!first->next) {
+    if (!background && !first->next) {
         int status = try_run_in_parent(first);
         if (status >= 0)
             return status;
@@ -248,27 +272,34 @@ static int run_pipeline(const psh_command *first)
     size_t nstages = 0;
     for (const psh_command *c = first; c; c = c->next)
         nstages++;
-    pid_t *pids = malloc(nstages * sizeof *pids);
-    if (!pids) {
-        fprintf(stderr, "psh: out of memory\n");
-        return 1;
-    }
 
-    size_t spawned = 0;
+    psh_job *job = psh_job_create(pipeline_to_string(first));
+    if (!job)
+        return 1;
+
+    bool incomplete = false;
     int prev_read = -1; /* read end of the pipe from the previous stage */
 
     for (const psh_command *c = first; c; c = c->next) {
         size_t na = count_leading_assignments(c);
         char **fargv = expand_command_argv(c, na);
-        if (!fargv)
+        if (!fargv) {
+            incomplete = true;
             break;
+        }
 
         int fds[2] = { -1, -1 };
         if (c->next && pipe(fds) < 0) {
             fprintf(stderr, "psh: pipe: %s\n", strerror(errno));
             free_strv(fargv);
+            incomplete = true;
             break;
         }
+
+        /* The job's pgid as of THIS fork: 0 for the first stage
+         * ("you found the group"), the real pgid afterwards. The
+         * child's memory is a snapshot, so pass it explicitly. */
+        pid_t pgid_snapshot = psh_job_get_pgid(job);
 
         pid_t pid = fork();
         if (pid < 0) {
@@ -278,13 +309,14 @@ static int run_pipeline(const psh_command *first)
                 close(fds[0]);
                 close(fds[1]);
             }
+            incomplete = true;
             break;
         }
 
         if (pid == 0) {
-            /* Child: die on Ctrl-C again (the shell ignores it). */
-            signal(SIGINT, SIG_DFL);
-            signal(SIGQUIT, SIG_DFL);
+            /* Child: join the job's process group, take the terminal
+             * if we're the foreground job, restore default signals. */
+            psh_job_child_setup(pgid_snapshot, !background);
 
             /* `A=1 cmd`: the child setenvs, execs, and takes the
              * variable to its grave — per-command env for free. */
@@ -319,14 +351,16 @@ static int run_pipeline(const psh_command *first)
             _exit(errno == ENOENT ? 127 : 126);
         }
 
-        /*
-         * Parent bookkeeping. Closing our copies of the pipe ends is
-         * not optional tidiness: a reader only sees EOF once EVERY
-         * write end is closed. Leak one here and `a | b` hangs forever
-         * with b waiting for input that will never finish.
-         */
+        /* Parent: mirror the child's setpgid (whoever runs first
+         * wins — that's the point), then the usual pipe hygiene:
+         * close our copies or readers never see EOF. */
+        if (psh_job_get_pgid(job) == 0)
+            psh_job_set_pgid(job, pid);
+        if (psh_job_control)
+            setpgid(pid, psh_job_get_pgid(job));
+        psh_job_add_pid(job, pid);
+
         free_strv(fargv);
-        pids[spawned++] = pid;
         if (prev_read >= 0)
             close(prev_read);
         if (c->next) {
@@ -337,38 +371,78 @@ static int run_pipeline(const psh_command *first)
     if (prev_read >= 0)
         close(prev_read); /* if the loop broke early */
 
-    int status = (spawned == nstages) ? 0 : 1;
-    for (size_t i = 0; i < spawned; i++) {
-        int wstatus;
-        if (waitpid(pids[i], &wstatus, 0) < 0)
-            continue;
-        if (i == spawned - 1 && spawned == nstages)
-            status = wait_status_to_exit(wstatus);
-        else if (WIFSIGNALED(wstatus) && WTERMSIG(wstatus) == SIGINT)
-            fputc('\n', stdout);
+    if (psh_job_npids(job) == 0) {
+        psh_job_discard(job);
+        return 1;
     }
-    free(pids);
+
+    if (background) {
+        psh_job_background(job);
+        return 0;
+    }
+    int status = psh_job_foreground(job, false);
+    return incomplete ? 1 : status;
+}
+
+static int run_andor(psh_andor *list)
+{
+    psh_andor *a = list;
+    int status = run_pipeline(a->pipeline, false);
+    psh_last_status = status; /* keep $? live between pipelines */
+    while (a->conn != PSH_CONN_END) {
+        psh_conn conn = a->conn;
+        a = a->next;
+        /* Skipped pipelines leave the status untouched — that's
+         * what makes `false && a || b` fall through to b. */
+        if ((conn == PSH_CONN_AND && status == 0) ||
+            (conn == PSH_CONN_OR && status != 0)) {
+            status = run_pipeline(a->pipeline, false);
+            psh_last_status = status;
+        }
+    }
     return status;
+}
+
+/*
+ * `a & ` backgrounds a single pipeline directly. `a && b &` must
+ * background the WHOLE list, so it runs inside one forked subshell —
+ * which is also exactly what bash does.
+ */
+static int run_background_stmt(psh_stmt *s)
+{
+    if (s->list->conn == PSH_CONN_END)
+        return run_pipeline(s->list->pipeline, true);
+
+    psh_job *job = psh_job_create(andor_to_string(s->list));
+    if (!job)
+        return 1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "psh: fork: %s\n", strerror(errno));
+        psh_job_discard(job);
+        return 1;
+    }
+    if (pid == 0) {
+        psh_job_child_setup(0, false);
+        psh_job_control = false; /* the subshell plays no terminal games */
+        _exit(run_andor(s->list) & 0xff);
+    }
+    psh_job_set_pgid(job, pid);
+    if (psh_job_control)
+        setpgid(pid, pid);
+    psh_job_add_pid(job, pid);
+    psh_job_background(job);
+    return 0;
 }
 
 int psh_execute(psh_stmt *stmts)
 {
     int status = psh_last_status;
     for (psh_stmt *s = stmts; s; s = s->next) {
-        psh_andor *a = s->list;
-        status = run_pipeline(a->pipeline);
-        psh_last_status = status; /* keep $? live between pipelines */
-        while (a->conn != PSH_CONN_END) {
-            psh_conn conn = a->conn;
-            a = a->next;
-            /* Skipped pipelines leave the status untouched — that's
-             * what makes `false && a || b` fall through to b. */
-            if ((conn == PSH_CONN_AND && status == 0) ||
-                (conn == PSH_CONN_OR && status != 0)) {
-                status = run_pipeline(a->pipeline);
-                psh_last_status = status;
-            }
-        }
+        status = s->background ? run_background_stmt(s)
+                               : run_andor(s->list);
+        psh_last_status = status;
     }
     return status;
 }

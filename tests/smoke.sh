@@ -157,8 +157,40 @@ check "redirect path with a variable" "piped" "$out"
 out=$(printf 'ls $NO_SUCH_VAR_SET %s/a.nut\n' "$tmp" | $PSH)
 check "empty unquoted expansion vanishes" "$tmp/a.nut" "$out"
 
-printf 'sleep 1 &\n' | $PSH 2>/dev/null
-check "'&' is a polite error for now" "2" "$?"
+# ---- milestone 4: background jobs, wait, comments ----
+
+start=$(date +%s)
+out=$(printf 'sleep 2 > /dev/null 2> /dev/null &\necho immediate\n' | $PSH)
+elapsed=$(( $(date +%s) - start ))
+check "& backgrounds a pipeline" "immediate" "$out"
+if [ "$elapsed" -lt 2 ]; then
+    printf 'ok   & returns without waiting\n'
+else
+    printf 'FAIL & blocked for %ss\n' "$elapsed"
+    fails=$((fails + 1))
+fi
+
+out=$(printf 'sleep 0.2 && echo late > %s/bg.out &\nwait\ncat %s/bg.out\n' \
+    "$tmp" "$tmp" | $PSH)
+check "background &&-list runs in a subshell; wait blocks" "late" "$out"
+
+printf 'true &\nwait\n' | $PSH
+check "wait exits 0" "0" "$?"
+
+out=$(printf '# a full comment line\necho visible\n' | $PSH)
+check "comment lines are ignored" "visible" "$out"
+
+out=$(printf 'echo tail # trailing comment\n' | $PSH)
+check "trailing comments are stripped" "tail" "$out"
+
+out=$(printf 'echo a#b\n' | $PSH)
+check "# inside a word is literal" "a#b" "$out"
+
+printf '& echo x\n' | $PSH 2>/dev/null
+check "leading '&' is a syntax error" "2" "$?"
+
+printf 'fg\n' | $PSH 2>/dev/null
+check "fg without job control fails politely" "1" "$?"
 
 rm -rf "$tmp"
 

@@ -36,12 +36,18 @@ never start a milestone until the previous one survives daily poking.
 - [x] expand.c is born: parse first, expand at execution time,
       quote-remove last — the ordering that makes `X=5; echo $X` work
 
-## M4 — daily-driver hardening
-- [ ] Job control: `&`, Ctrl-Z, `jobs`, `fg`, `bg` (process groups,
-      tcsetpgrp, SIGTSTP — the hardest classic-Unix material in the project)
-- [ ] `~/.pshrc` startup file
-- [ ] Tab completion (filenames first, commands later)
-- [ ] Set as login shell: add to /etc/shells, chsh
+## M4 — daily-driver hardening (mostly ✅)
+- [x] Job control: `&`, Ctrl-Z, `jobs`, `fg [%n]`, `bg`, `wait`
+      (process groups, tcsetpgrp, WUNTRACED, per-job termios — see the
+      jobs.c header comment for the four-sentence mental model)
+- [x] Background &&/|| lists run in a forked subshell (`a && b &`)
+- [x] `~/.pshrc` startup file (sourced interactively, line by line)
+- [x] Tab completion: commands (builtins + $PATH) in command position,
+      readline's filename completion everywhere else
+- [x] `#` comments (bonus: needed for a civilized .pshrc)
+- [ ] Set as login shell — user ritual, not code:
+      `echo $(pwd)/psh | sudo tee -a /etc/shells && chsh -s $(pwd)/psh`
+      (recommended only after some days of daily driving)
 
 ## M5 — a language
 - [ ] `if` / `else`, `for`, `while`, functions

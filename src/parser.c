@@ -230,6 +230,22 @@ psh_stmt *psh_parse(psh_token *tokens, bool *err)
             if (!push_stmt(&w))
                 goto oom;
             break;
+
+        case TOK_AMP:
+            /* '&' terminates a statement like ';' does, and marks the
+             * whole preceding &&/|| list as a background job. */
+            if (pending) {
+                msg = "expected a command after operator";
+                goto fail;
+            }
+            if (!w.cur && !w.phead && !w.ahead) {
+                msg = "missing command before '&'";
+                goto fail;
+            }
+            if (!push_stmt(&w))
+                goto oom;
+            w.stail->background = true;
+            break;
         }
     }
 

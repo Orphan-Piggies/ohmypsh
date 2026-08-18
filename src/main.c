@@ -95,6 +95,27 @@ static void run_line(const char *line)
     }
 }
 
+/* ~/.pshrc: run once at interactive startup, line by line, exactly as
+ * if typed. The place for greetings, variables and (someday) themes —
+ * oh-my-psh will live on top of this file. */
+static void source_pshrc(void)
+{
+    const char *home = getenv("HOME");
+    if (!home)
+        return;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s/.pshrc", home);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return; /* no file, no problem */
+    char *line = NULL;
+    size_t cap = 0;
+    while (getline(&line, &cap, f) >= 0)
+        run_line(line);
+    free(line);
+    fclose(f);
+}
+
 int main(void)
 {
     bool interactive = isatty(STDIN_FILENO);
@@ -102,13 +123,19 @@ int main(void)
     /*
      * The shell itself must survive Ctrl-C; only the command it is
      * currently running should die. So the shell ignores SIGINT here,
-     * and exec.c restores the default action in each child after fork.
+     * and each child restores the default action after fork. The
+     * job-control signals (SIGTSTP & friends) are handled by
+     * psh_jobs_init, which also claims a process group and the
+     * terminal when interactive.
      */
     signal(SIGINT, SIG_IGN);
     signal(SIGQUIT, SIG_IGN);
+    psh_jobs_init(interactive);
 
     if (interactive) {
         psh_pistachio_hello();
+        psh_completion_init();
+        source_pshrc();
 
         const char *home = getenv("HOME");
         if (home) {
@@ -122,6 +149,9 @@ int main(void)
 
         char prompt[PATH_MAX + 64];
         for (;;) {
+            /* Deliver the news first: background jobs that finished
+             * or stopped since the last prompt. */
+            psh_jobs_notify();
             build_prompt(prompt, sizeof prompt);
             char *line = readline(prompt);
             if (!line) { /* Ctrl-D on an empty line */
@@ -136,8 +166,10 @@ int main(void)
     } else {
         char *line = NULL;
         size_t linecap = 0;
-        while (getline(&line, &linecap, stdin) >= 0)
+        while (getline(&line, &linecap, stdin) >= 0) {
             run_line(line);
+            psh_jobs_reap(); /* keep zombies from piling up */
+        }
         free(line);
     }
 

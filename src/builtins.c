@@ -92,9 +92,20 @@ static const struct {
     { "cd",    bi_cd,             "change directory (cd, cd <dir>, cd -)" },
     { "exit",  bi_exit,           "leave the bag (exit [status])" },
     { "pwd",   bi_pwd,            "print working directory" },
+    { "jobs",  psh_builtin_jobs,  "list background and stopped jobs" },
+    { "fg",    psh_builtin_fg,    "bring a job to the foreground (fg [%n])" },
+    { "bg",    psh_builtin_bg,    "continue a stopped job in the background" },
+    { "wait",  psh_builtin_wait,  "wait for all background jobs to finish" },
     { "help",  bi_help,           "this text" },
     { "crack", psh_builtin_crack, "???" },
 };
+
+const char *psh_builtin_name(size_t i)
+{
+    if (i >= sizeof builtins / sizeof builtins[0])
+        return NULL;
+    return builtins[i].name;
+}
 
 psh_builtin_fn psh_find_builtin(const char *name)
 {

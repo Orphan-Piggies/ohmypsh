@@ -20,8 +20,9 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.3.0"
+#define PSH_VERSION "0.4.0"
 
 /*
  * The mascot glyph, used in the prompt and banners. Unicode has no
@@ -43,6 +44,7 @@ typedef enum {
     TOK_AND,          /* && */
     TOK_OR,           /* || */
     TOK_SEMI,         /* ;  */
+    TOK_AMP,          /* &  — statement terminator meaning "background" */
     TOK_REDIR_IN,     /* <  */
     TOK_REDIR_OUT,    /* >  */
     TOK_REDIR_APPEND, /* >> */
@@ -88,9 +90,11 @@ typedef struct psh_andor {
     struct psh_andor *next;
 } psh_andor;
 
-/* One statement = one &&/|| list. Statements are separated by ';'. */
+/* One statement = one &&/|| list. Statements are separated by ';'
+ * or by '&', which additionally marks the statement as background. */
 typedef struct psh_stmt {
     psh_andor *list;
+    bool background;
     struct psh_stmt *next;
 } psh_stmt;
 
@@ -111,10 +115,43 @@ char *psh_expand_word_single(const char *raw);
 /* exec.c — run every statement; returns the last one's exit status */
 int psh_execute(psh_stmt *stmts);
 
+/* ---------------- jobs (jobs.c) ---------------- */
+
+/* A job = one pipeline (or one background subshell) = one process
+ * group. The struct is private to jobs.c. */
+typedef struct psh_job psh_job;
+
+/* True when this is an interactive shell that owns a terminal and
+ * plays the process-group game. Off for scripts and pipes. */
+extern bool psh_job_control;
+
+void psh_jobs_init(bool interactive);
+psh_job *psh_job_create(char *cmdline); /* takes ownership of cmdline */
+void psh_job_add_pid(psh_job *j, pid_t pid);
+size_t psh_job_npids(const psh_job *j);
+pid_t psh_job_get_pgid(const psh_job *j);
+void psh_job_set_pgid(psh_job *j, pid_t pgid);
+void psh_job_discard(psh_job *j); /* nothing was spawned: forget it */
+/* In the forked child, before exec: join the job's process group,
+ * optionally take the terminal, reset job-control signals. */
+void psh_job_child_setup(pid_t pgid, bool foreground);
+int psh_job_foreground(psh_job *j, bool cont); /* wait; returns status */
+void psh_job_background(psh_job *j);           /* announce [n] pgid */
+void psh_jobs_reap(void);   /* silent non-blocking reap of children */
+void psh_jobs_notify(void); /* reap + report Done/Stopped (per prompt) */
+int psh_builtin_jobs(char **argv);
+int psh_builtin_fg(char **argv);
+int psh_builtin_bg(char **argv);
+int psh_builtin_wait(char **argv);
+
+/* complete.c — tab completion (commands first word, files elsewhere) */
+void psh_completion_init(void);
+
 /* builtins.c */
 typedef int (*psh_builtin_fn)(char **argv);
 psh_builtin_fn psh_find_builtin(const char *name);
 void psh_list_builtins(void);
+const char *psh_builtin_name(size_t i); /* NULL past the end */
 
 /* pistachio.c 🫛 */
 void psh_pistachio_hello(void);

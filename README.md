@@ -11,12 +11,13 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Milestone 3 of [the roadmap](docs/ROADMAP.md) — psh is now livable:
-readline line editing (↑/↓ history saved to `~/.psh_history`, Ctrl-R,
-Ctrl-L), pipelines, redirects (`>`, `>>`, `<`, `2>`), `&&`/`||`/`;`,
-variables (`NAME=value`, `$NAME`, `$?`, `A=1 cmd`), globbing, and `~`.
-And the founding rule is real: `F="two words"; rm $F` deletes exactly
-one file. Next up: job control, `~/.pshrc`, and tab completion.
+Milestone 4 of [the roadmap](docs/ROADMAP.md) — psh is a daily driver:
+full job control (`&`, Ctrl-Z, `jobs`, `fg`, `bg`, `wait`), readline
+line editing (↑/↓ history, Ctrl-R, Ctrl-L), tab completion (commands
+and filenames), `~/.pshrc`, pipelines, redirects, `&&`/`||`/`;`,
+variables, globbing, `~`, and `#` comments. The founding rule is real:
+`F="two words"; rm $F` deletes exactly one file. Next up: the
+language — `if`, `for`, functions, `$(...)`, scripts.
 
 ## Build & run
 
@@ -36,7 +37,9 @@ src/main.c       the REPL — the loop that IS the shell
 src/lexer.c      line → tokens (words kept raw, | || && ; < > >> 2>)
 src/parser.c     tokens → statements → &&/|| lists → pipelines → commands
 src/expand.c     $VAR, ~, quote removal, globbing — at execution time
-src/exec.c       fork / execvp / waitpid, pipes, redirects
+src/exec.c       fork / execvp, pipes, redirects, jobs plumbing
+src/jobs.c       job control: process groups, tcsetpgrp, Ctrl-Z
+src/complete.c   tab completion (commands + files)
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
 docs/ROADMAP.md  where this is going

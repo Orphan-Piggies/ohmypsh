@@ -56,21 +56,21 @@ psh_token *psh_tokenize(const char *line, bool *err)
         if (!*p)
             break;
 
+        /* An unquoted '#' at the start of a word comments out the
+         * rest of the line (echo a#b is still one word, like sh). */
+        if (*p == '#')
+            break;
+
         int op = -1;
         if (*p == '&' && p[1] == '&') { op = TOK_AND; p += 2; }
         else if (*p == '|' && p[1] == '|') { op = TOK_OR; p += 2; }
         else if (*p == '|') { op = TOK_PIPE; p += 1; }
+        else if (*p == '&') { op = TOK_AMP; p += 1; }
         else if (*p == ';') { op = TOK_SEMI; p += 1; }
         else if (*p == '<') { op = TOK_REDIR_IN; p += 1; }
         else if (*p == '>' && p[1] == '>') { op = TOK_REDIR_APPEND; p += 2; }
         else if (*p == '>') { op = TOK_REDIR_OUT; p += 1; }
         else if (*p == '2' && p[1] == '>') { op = TOK_REDIR_ERR; p += 2; }
-        else if (*p == '&') {
-            fprintf(stderr,
-                    "psh: '&' (background jobs) arrives in a later "
-                    "milestone\n");
-            goto fail;
-        }
 
         if (op >= 0) {
             if (!tok_append(&head, &tail, (psh_token_type)op, NULL))
