@@ -114,9 +114,9 @@ readline requires a GPL-compatible choice).
       plugins register instead of overwriting each other;
       $__OMP_STATUS carries the last status to every hook
 - [x] `omp` CLI: list / enable / theme / reload
-- [x] python: venv AUTO-ACTIVATION — upward .venv search on every
-      directory change, PATH save/restore, ⌁name prompt segment,
-      venv-init
+- [x] python: venv AUTO-ACTIVATION — upward .venv/venv search on
+      every directory change, PATH save/restore, ⌁name prompt
+      segment, venv-init
 - [x] django (dj/djrun/djmig/djtest), flask (fl/flrun/flsh)
 - [x] rails (r prefers bin/rails; rs/rc/rg/rmig/rrout)
 - [x] docker (dps/dim/dlog/dex/dstop/dclean)

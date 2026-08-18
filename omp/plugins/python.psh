@@ -1,18 +1,20 @@
 # python — venv auto-activation, the fleet's flagship feature.
 #
-# On every directory change, walk UP from $PWD looking for .venv:
-# entering a project (or any subdirectory of it) activates its venv;
-# leaving the project deactivates. No `source .venv/bin/activate`
+# On every directory change, walk UP from $PWD looking for .venv (or
+# venv): entering a project (or any subdirectory of it) activates its
+# venv; leaving the project deactivates. No `source .venv/bin/activate`
 # ever again.
 
 __omp_find_venv() {
-    local d
+    local d v
     d=$PWD
     while [ "$d" != "/" ]; do
-        if [ -f $d/.venv/bin/activate ]; then
-            echo $d/.venv
-            return 0
-        fi
+        for v in .venv venv; do
+            if [ -f $d/$v/bin/activate ]; then
+                echo $d/$v
+                return 0
+            fi
+        done
         d=$(dirname $d)
     done
     return 1
