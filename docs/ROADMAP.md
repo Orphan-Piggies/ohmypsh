@@ -22,14 +22,19 @@ never start a milestone until the previous one survives daily poking.
 - [x] Lone builtins with redirects run in-parent (fd save/restore);
       builtins inside pipelines run in the child, like bash
 
-## M3 — livable (the week-2 goal)
-- [ ] GNU readline: history, arrow keys, Ctrl-R, line editing for free
-      (link with `-lreadline`; a hand-rolled editor can replace it later)
-- [ ] `&&` and `||` chaining
-- [ ] Globbing via glob(3): `*.c`, `src/*.o`
-- [ ] Variables: `NAME=value`, `$NAME`, `$?` — values never word-split
-      (the founding design decision, see README)
-- [ ] `~` expansion
+## M3 — livable (the week-2 goal) ✅
+- [x] GNU readline: ↑/↓ history (persisted to ~/.psh_history), Ctrl-R,
+      Ctrl-L, line editing — interactive only; scripts keep getline
+- [x] `&&` and `||` chaining with sh precedence: `a | b && c` is
+      `(a | b) && c`; skipped pipelines preserve $?
+- [x] Globbing via glob(3): `*.c` — no-match stays literal, any
+      quoting suppresses it
+- [x] Variables: `NAME=value`, `$NAME`, `${NAME}`, `$?`, `$$`,
+      `A=1 cmd` per-command env — values NEVER word-split
+      (the founding design decision, enforced in expand.c)
+- [x] `~` expansion
+- [x] expand.c is born: parse first, expand at execution time,
+      quote-remove last — the ordering that makes `X=5; echo $X` work
 
 ## M4 — daily-driver hardening
 - [ ] Job control: `&`, Ctrl-Z, `jobs`, `fg`, `bg` (process groups,

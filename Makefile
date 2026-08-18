@@ -7,12 +7,13 @@
 
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -g -D_POSIX_C_SOURCE=200809L
+LDLIBS  := -lreadline
 
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 
 psh: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
 src/%.o: src/%.c src/psh.h
 	$(CC) $(CFLAGS) -c -o $@ $<

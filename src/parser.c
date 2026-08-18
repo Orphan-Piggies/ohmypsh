@@ -1,17 +1,19 @@
 /*
  * parser.c — token stream → syntax tree.
  *
- * Milestone-2 grammar:
+ * Milestone-3 grammar (one new layer since M2 — the &&/|| list sits
+ * BETWEEN statements and pipelines, which is exactly sh's precedence:
+ * `a | b && c` means "(a | b) && c", never "a | (b && c)"):
  *
- *     line     := pipeline (';' pipeline)*
+ *     line     := list (';' list)*
+ *     list     := pipeline (('&&' | '||') pipeline)*
  *     pipeline := command ('|' command)*
  *     command  := (WORD | redirect)+
  *     redirect := ('<' | '>' | '>>' | '2>') WORD
  *
  * Redirects may appear anywhere within a command — `>out ls -l` and
- * `ls -l >out` are the same command — which is also how sh reads them.
- * A command may even be ONLY redirects (`> file` creates/truncates the
- * file and runs nothing; a surprisingly handy sh-ism we keep).
+ * `ls -l >out` are the same command. A command may even be ONLY
+ * redirects (`> file` truncates the file and runs nothing).
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -63,148 +65,195 @@ static void cmd_free_chain(psh_command *c)
     }
 }
 
+static void andor_free_chain(psh_andor *a)
+{
+    while (a) {
+        psh_andor *next = a->next;
+        cmd_free_chain(a->pipeline);
+        free(a);
+        a = next;
+    }
+}
+
 void psh_stmts_free(psh_stmt *s)
 {
     while (s) {
         psh_stmt *next = s->next;
-        cmd_free_chain(s->pipeline);
+        andor_free_chain(s->list);
         free(s);
         s = next;
     }
 }
 
+/*
+ * The parser is a little assembly line with a partially-built piece
+ * at every level: `cur` (command) feeds `phead` (pipeline) feeds
+ * `ahead` (&&/|| list) feeds `shead` (statement list). Operators and
+ * ';' push pieces down a level; end-of-line flushes everything.
+ */
+typedef struct {
+    psh_stmt *shead, *stail;
+    psh_andor *ahead, *atail;
+    psh_command *phead, *ptail;
+    psh_command *cur;
+} builder;
+
+static void push_cur(builder *w)
+{
+    if (!w->cur)
+        return;
+    if (w->ptail)
+        w->ptail->next = w->cur;
+    else
+        w->phead = w->cur;
+    w->ptail = w->cur;
+    w->cur = NULL;
+}
+
+/* Close the current pipeline into an &&/|| node joined by `conn`. */
+static bool push_pipeline(builder *w, psh_conn conn)
+{
+    push_cur(w);
+    if (!w->phead)
+        return true;
+    psh_andor *a = calloc(1, sizeof *a);
+    if (!a)
+        return false;
+    a->pipeline = w->phead;
+    a->conn = conn;
+    if (w->atail)
+        w->atail->next = a;
+    else
+        w->ahead = a;
+    w->atail = a;
+    w->phead = w->ptail = NULL;
+    return true;
+}
+
+static bool push_stmt(builder *w)
+{
+    if (!push_pipeline(w, PSH_CONN_END))
+        return false;
+    if (!w->ahead)
+        return true;
+    psh_stmt *s = calloc(1, sizeof *s);
+    if (!s)
+        return false;
+    s->list = w->ahead;
+    if (w->stail)
+        w->stail->next = s;
+    else
+        w->shead = s;
+    w->stail = s;
+    w->ahead = w->atail = NULL;
+    return true;
+}
+
 psh_stmt *psh_parse(psh_token *tokens, bool *err)
 {
     *err = false;
-
-    psh_stmt *shead = NULL, *stail = NULL;    /* finished statements */
-    psh_command *phead = NULL, *ptail = NULL; /* pipeline being built */
-    psh_command *cur = NULL;                  /* command being built */
-    bool after_pipe = false; /* a '|' was seen; a command must follow */
+    builder w = { 0 };
+    const char *pending = NULL; /* operator that still needs a command */
     const char *msg = NULL;
 
     for (psh_token *t = tokens; t; t = t->next) {
         switch (t->type) {
 
         case TOK_WORD:
-            if (!cur && !(cur = cmd_new()))
+            if (!w.cur && !(w.cur = cmd_new()))
                 goto oom;
-            if (!cmd_add_arg(cur, t->text))
+            if (!cmd_add_arg(w.cur, t->text))
                 goto oom;
+            pending = NULL;
             break;
 
         case TOK_REDIR_IN:
         case TOK_REDIR_OUT:
         case TOK_REDIR_APPEND:
         case TOK_REDIR_ERR: {
-            /* Every redirect operator must be followed by a filename. */
             if (!t->next || t->next->type != TOK_WORD) {
                 msg = "expected a filename after redirect";
                 goto fail;
             }
-            if (!cur && !(cur = cmd_new()))
+            if (!w.cur && !(w.cur = cmd_new()))
                 goto oom;
             char *path = strdup(t->next->text);
             if (!path)
                 goto oom;
             switch (t->type) {
             case TOK_REDIR_IN:
-                free(cur->in_path);
-                cur->in_path = path;
+                free(w.cur->in_path);
+                w.cur->in_path = path;
                 break;
             case TOK_REDIR_ERR:
-                free(cur->err_path);
-                cur->err_path = path;
+                free(w.cur->err_path);
+                w.cur->err_path = path;
                 break;
             default: /* > or >> */
-                free(cur->out_path);
-                cur->out_path = path;
-                cur->append = (t->type == TOK_REDIR_APPEND);
+                free(w.cur->out_path);
+                w.cur->out_path = path;
+                w.cur->append = (t->type == TOK_REDIR_APPEND);
                 break;
             }
             t = t->next; /* the filename token is consumed too */
+            pending = NULL;
             break;
         }
 
         case TOK_PIPE:
-            /* `| cmd` or `cmd | | cmd`: nothing on the left to pipe.
-             * (Redirect-only commands can't feed a pipe either.) */
-            if (!cur || cur->argc == 0) {
+            if (!w.cur || w.cur->argc == 0) {
                 msg = "missing command before '|'";
                 goto fail;
             }
-            if (ptail)
-                ptail->next = cur;
-            else
-                phead = cur;
-            ptail = cur;
-            cur = NULL;
-            after_pipe = true;
+            push_cur(&w);
+            pending = "|";
+            break;
+
+        case TOK_AND:
+        case TOK_OR:
+            if (!w.cur || w.cur->argc == 0) {
+                msg = (t->type == TOK_AND) ? "missing command before '&&'"
+                                           : "missing command before '||'";
+                goto fail;
+            }
+            if (!push_pipeline(&w, t->type == TOK_AND ? PSH_CONN_AND
+                                                      : PSH_CONN_OR))
+                goto oom;
+            pending = (t->type == TOK_AND) ? "&&" : "||";
             break;
 
         case TOK_SEMI:
-            if (after_pipe && !cur) {
-                msg = "expected a command after '|'";
+            if (pending) {
+                msg = "expected a command after operator";
                 goto fail;
             }
-            goto close_statement;
-        }
-        continue;
-
-    close_statement:
-        if (cur) {
-            if (ptail)
-                ptail->next = cur;
-            else
-                phead = cur;
-            cur = NULL;
-        }
-        if (phead) {
-            psh_stmt *s = calloc(1, sizeof *s);
-            if (!s)
+            if (!push_stmt(&w))
                 goto oom;
-            s->pipeline = phead;
-            if (stail)
-                stail->next = s;
-            else
-                shead = s;
-            stail = s;
-            phead = ptail = NULL;
+            break;
         }
-        after_pipe = false;
     }
 
     /* End of line closes the last statement, same as a ';' would. */
-    if (after_pipe && !cur) {
-        msg = "expected a command after '|'";
+    if (pending) {
+        msg = "expected a command after operator";
         goto fail;
     }
-    if (cur) {
-        if (ptail)
-            ptail->next = cur;
-        else
-            phead = cur;
-        cur = NULL;
-    }
-    if (phead) {
-        psh_stmt *s = calloc(1, sizeof *s);
-        if (!s)
-            goto oom;
-        s->pipeline = phead;
-        if (stail)
-            stail->next = s;
-        else
-            shead = s;
-    }
-    return shead;
+    if (!push_stmt(&w))
+        goto oom;
+    return w.shead;
 
 oom:
     msg = "out of memory";
 fail:
-    fprintf(stderr, "psh: syntax error: %s\n", msg);
-    cmd_free_chain(cur);
-    cmd_free_chain(phead);
-    psh_stmts_free(shead);
+    if (pending && msg && strcmp(msg, "expected a command after operator") == 0)
+        fprintf(stderr, "psh: syntax error: expected a command after '%s'\n",
+                pending);
+    else
+        fprintf(stderr, "psh: syntax error: %s\n", msg);
+    cmd_free_chain(w.cur);
+    cmd_free_chain(w.phead);
+    andor_free_chain(w.ahead);
+    psh_stmts_free(w.shead);
     *err = true;
     return NULL;
 }

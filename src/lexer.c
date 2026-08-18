@@ -1,20 +1,18 @@
 /*
  * lexer.c — turn one line of input into a stream of tokens.
  *
- * In milestone 1 this file produced argv[] directly. Now that the
- * grammar has operators, the classic split appears: the lexer only
- * CLASSIFIES characters into tokens; parser.c gives them structure.
+ * Token kinds:  words,  |  ||  &&  ;  <  >  >>  2>
  *
- * Token kinds:  words,  |  ;  <  >  >>  2>
- *
- * Quoting rules are unchanged — '...' and "..." group text into one
- * word — with one important consequence: a QUOTED operator character
- * is literal.  echo "a|b"  is one word; no pipe is created.
+ * Since milestone 3 the lexer no longer strips quotes: a word token
+ * carries the RAW text, quotes and $ signs intact, and expand.c
+ * finishes the job at execution time. The lexer's only quoting duties
+ * are (a) letting quoted operator characters stay inside a word —
+ * echo "a|b" is one word, no pipe — and (b) rejecting unterminated
+ * quotes early.
  *
  * `2>` is recognized only at the start of a word, matching sh: in
  * `echo 2> f` the 2 binds to the redirect, but `echo a2> f` is the
- * word "a2" followed by a plain `>`. (`2>>` can join in a later
- * milestone if anyone ever misses it.)
+ * word "a2" followed by a plain `>`.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -59,12 +57,20 @@ psh_token *psh_tokenize(const char *line, bool *err)
             break;
 
         int op = -1;
-        if (*p == '|') { op = TOK_PIPE; p += 1; }
+        if (*p == '&' && p[1] == '&') { op = TOK_AND; p += 2; }
+        else if (*p == '|' && p[1] == '|') { op = TOK_OR; p += 2; }
+        else if (*p == '|') { op = TOK_PIPE; p += 1; }
         else if (*p == ';') { op = TOK_SEMI; p += 1; }
         else if (*p == '<') { op = TOK_REDIR_IN; p += 1; }
         else if (*p == '>' && p[1] == '>') { op = TOK_REDIR_APPEND; p += 2; }
         else if (*p == '>') { op = TOK_REDIR_OUT; p += 1; }
         else if (*p == '2' && p[1] == '>') { op = TOK_REDIR_ERR; p += 2; }
+        else if (*p == '&') {
+            fprintf(stderr,
+                    "psh: '&' (background jobs) arrives in a later "
+                    "milestone\n");
+            goto fail;
+        }
 
         if (op >= 0) {
             if (!tok_append(&head, &tail, (psh_token_type)op, NULL))
@@ -72,11 +78,14 @@ psh_token *psh_tokenize(const char *line, bool *err)
             continue;
         }
 
-        /* A word: runs until unquoted whitespace or an operator char. */
+        /* A word: runs until unquoted whitespace or an operator char.
+         * Quoted stretches are copied VERBATIM, quote marks included —
+         * expansion and quote removal are expand.c's job, later. */
         size_t t = 0;
-        while (*p && !isspace((unsigned char)*p) && !strchr("|;<>", *p)) {
+        while (*p && !isspace((unsigned char)*p) && !strchr("|&;<>", *p)) {
             if (*p == '\'' || *p == '"') {
-                char quote = *p++;
+                char quote = *p;
+                buf[t++] = *p++;
                 while (*p && *p != quote)
                     buf[t++] = *p++;
                 if (!*p) {
@@ -84,7 +93,7 @@ psh_token *psh_tokenize(const char *line, bool *err)
                             "psh: syntax error: unterminated quote\n");
                     goto fail;
                 }
-                p++; /* skip the closing quote */
+                buf[t++] = *p++; /* keep the closing quote too */
             } else {
                 buf[t++] = *p++;
             }

@@ -100,6 +100,66 @@ out=$(printf 'cd /tmp | cat\npwd\n' | $PSH)
 [ "$out" != "/tmp" ] && printf 'ok   builtin in a pipeline runs in a subshell\n' \
     || { printf 'FAIL cd leaked out of a pipeline\n'; fails=$((fails + 1)); }
 
+# ---- milestone 3: && ||, variables, $?, globbing, tilde ----
+
+out=$(printf 'true && echo yes\n' | $PSH)
+check "&& runs on success" "yes" "$out"
+
+out=$(printf 'false && echo no\ntrue\n' | $PSH)
+check "&& skips on failure" "" "$out"
+
+out=$(printf 'false || echo rescued\n' | $PSH)
+check "|| runs on failure" "rescued" "$out"
+
+out=$(printf '%s\n' 'false && echo a || echo b' | $PSH)
+check "false && a || b falls through to b" "b" "$out"
+
+out=$(printf 'X=5; echo $X\n' | $PSH)
+check "assignment then expansion, same line" "5" "$out"
+
+out=$(printf 'GREETING=salam\necho $GREETING\n' | $PSH)
+check "assignment persists across lines" "salam" "$out"
+
+out=$(printf '%s\n' 'A="two  words"; printf [%s]\n $A' | $PSH)
+check "founding rule: variables never word-split" "[two  words]" "$out"
+
+out=$(printf '%s\n' 'false; echo $?' | $PSH)
+check "\$? expands to last status" "1" "$out"
+
+out=$(printf "echo '\$HOME'\n" | $PSH)
+check "single quotes suppress expansion" '$HOME' "$out"
+
+out=$(printf 'V=nut; echo "${V}cracker"\n' | $PSH)
+check "braced \${V} expansion inside quotes" "nutcracker" "$out"
+
+out=$(printf 'A=1 printenv A\n' | $PSH)
+check "per-command env: A=1 cmd sees A" "1" "$out"
+
+out=$(printf 'A=1 true\nprintenv A\ntrue\n' | $PSH)
+check "per-command env does not leak into the shell" "" "$out"
+
+printf 'echo n1 > %s/a.nut\necho n2 > %s/b.nut\n' "$tmp" "$tmp" | $PSH
+out=$(printf 'cd %s; echo *.nut\n' "$tmp" | $PSH)
+check "glob expands to sorted matches" "a.nut b.nut" "$out"
+
+out=$(printf 'cd %s; echo *.zzz\n' "$tmp" | $PSH)
+check "glob with no match stays literal" "*.zzz" "$out"
+
+out=$(printf 'cd %s; echo "*.nut"\n' "$tmp" | $PSH)
+check "quoted glob stays literal" "*.nut" "$out"
+
+out=$(printf 'echo ~\n' | $PSH)
+check "tilde expands to HOME" "$HOME" "$out"
+
+out=$(printf 'F=%s/var.out; echo piped > $F; cat $F\n' "$tmp" | $PSH)
+check "redirect path with a variable" "piped" "$out"
+
+out=$(printf 'ls $NO_SUCH_VAR_SET %s/a.nut\n' "$tmp" | $PSH)
+check "empty unquoted expansion vanishes" "$tmp/a.nut" "$out"
+
+printf 'sleep 1 &\n' | $PSH 2>/dev/null
+check "'&' is a polite error for now" "2" "$?"
+
 rm -rf "$tmp"
 
 echo

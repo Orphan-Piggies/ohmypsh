@@ -11,11 +11,12 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Milestone 2 of [the roadmap](docs/ROADMAP.md): a working interactive
-shell with quoting, pipelines (`ls | grep c | wc -l`), redirects
-(`>`, `>>`, `<`, `2>`), `;`-separated commands, and `cd`/`exit`/`pwd` —
-and it survives Ctrl-C like a shell should. Next up: readline (history,
-arrow keys), `&&`/`||`, globbing, and variables.
+Milestone 3 of [the roadmap](docs/ROADMAP.md) — psh is now livable:
+readline line editing (↑/↓ history saved to `~/.psh_history`, Ctrl-R,
+Ctrl-L), pipelines, redirects (`>`, `>>`, `<`, `2>`), `&&`/`||`/`;`,
+variables (`NAME=value`, `$NAME`, `$?`, `A=1 cmd`), globbing, and `~`.
+And the founding rule is real: `F="two words"; rm $F` deletes exactly
+one file. Next up: job control, `~/.pshrc`, and tab completion.
 
 ## Build & run
 
@@ -25,15 +26,16 @@ make test   # runs the smoke tests
 ./psh       # step into the bag
 ```
 
-Requires only a C compiler and a POSIX system. No dependencies yet
-(GNU readline arrives in milestone 3).
+Requires a C compiler, a POSIX system, and GNU readline
+(`apt install libreadline-dev` / `dnf install readline-devel`).
 
 ## Layout
 
 ```
 src/main.c       the REPL — the loop that IS the shell
-src/lexer.c      line → tokens (words, | ; < > >> 2>), quote handling
-src/parser.c     tokens → statements → pipelines → commands
+src/lexer.c      line → tokens (words kept raw, | || && ; < > >> 2>)
+src/parser.c     tokens → statements → &&/|| lists → pipelines → commands
+src/expand.c     $VAR, ~, quote removal, globbing — at execution time
 src/exec.c       fork / execvp / waitpid, pipes, redirects
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
