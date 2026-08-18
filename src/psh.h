@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.7.0"
+#define PSH_VERSION "0.8.0"
 
 /*
  * The mascot glyph. Unicode has no pistachio emoji (🥜 is officially
@@ -69,6 +69,12 @@ void psh_vars_pop_scope(void);
 /* arith.c — the $(( ... )) evaluator */
 long long psh_arith_eval(const char *expr, bool *err);
 
+/* testcmd.c — the test / [ builtin */
+int psh_builtin_test(char **argv);
+
+/* set -e: exit the shell when an untested pipeline fails (exec.c) */
+extern bool psh_errexit;
+
 /* ---------------- tokens (lexer.c) ---------------- */
 
 typedef enum {
@@ -91,6 +97,7 @@ typedef enum {
 typedef struct psh_token {
     psh_token_type type;
     char *text; /* TOK_WORD only: the RAW word, quotes/$() intact */
+    int line;   /* 1-based line the token starts on (for errors) */
     struct psh_token *next;
 } psh_token;
 

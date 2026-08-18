@@ -11,8 +11,10 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Horizon 1 of [the roadmap](docs/ROADMAP.md) — the language is
-complete: `if`/`elif`/`else`, `while`, `for`, `case`, functions with
+Horizon 2 of [the roadmap](docs/ROADMAP.md) — hardened for scripts:
+`test`/`[` as fork-free builtins, `type` and `command -v`, `set -e`,
+`trap ... EXIT`, and parse errors with line numbers — on a complete
+language: `if`/`elif`/`else`, `while`, `for`, `case`, functions with
 `$1`..`$9` and a true `$@` splat, `local`/`export`/`unset` on a real
 three-tier variable table, `$((...))` arithmetic, `$(...)` command
 substitution, `return`/`break`/`continue`, scripts with shebangs,
@@ -63,6 +65,7 @@ src/parser.c     recursive descent: if/while/for/functions/lists
 src/expand.c     $VAR, $1..$9, $@, $(...), $((...)), ~, quotes, glob
 src/vars.c       locals → shell vars → environ; export / local / unset
 src/arith.c      the $(( ... )) evaluator
+src/testcmd.c    the test / [ builtin (fork-free conditions)
 src/exec.c       tree walker: pipelines, control flow, functions
 src/jobs.c       job control: process groups, tcsetpgrp, Ctrl-Z
 src/complete.c   tab completion (commands + files)

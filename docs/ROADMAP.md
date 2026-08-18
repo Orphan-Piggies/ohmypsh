@@ -97,11 +97,18 @@ readline requires a GPL-compatible choice).
 - [x] `$((...))` arithmetic (arith.c): + - * / % comparisons && ||,
       bare variable names, long long — `$(expr ...)` retired
 
-## H2 — scripting hardening
-- [ ] `test` / `[` as builtins (every `if` currently forks)
-- [ ] `type` / `command -v` builtin — H3's plugins need tool detection
-- [ ] `set -e` strict mode; `trap` on EXIT
-- [ ] Parse errors with line numbers
+## H2 — scripting hardening ✅ (v0.8.0)
+- [x] `test` / `[` as builtins (testcmd.c): string/numeric/file ops,
+      `!`, `-a`/`-o` — a 1000-iteration `[ ]` loop runs in ~25ms,
+      down from a fork per comparison
+- [x] `type` and `command -v` builtins — functions/builtins/$PATH;
+      `command -v` is silent+status-1 when missing, so plugins can
+      probe for tools
+- [x] `set -e` (untested single-pipeline failures exit; if/while
+      conditions and &&/|| operands don't count) and `+e`
+- [x] `trap 'cmds' EXIT` / `trap - EXIT` — fires on every exit path
+      of THIS shell only (children _exit past it; pid-guarded)
+- [x] Parse errors with line numbers in scripts and multi-line input
 
 ## H3 — the omp plugin fleet (developer hacks)
 - [ ] `omp` CLI: `omp list`, `omp enable <plugin>`, `omp theme <t>`

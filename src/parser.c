@@ -131,14 +131,17 @@ static psh_stmt *stmt_new(psh_stmt_kind kind)
 
 typedef struct {
     psh_token *cur;
+    int line; /* line of the last token seen (for errors at EOF) */
     bool err;
     bool incomplete;
 } P;
 
 static void advance(P *p)
 {
-    if (p->cur)
+    if (p->cur) {
+        p->line = p->cur->line;
         p->cur = p->cur->next;
+    }
 }
 
 static bool at_word(P *p, const char *w)
@@ -162,7 +165,11 @@ static void skip_separators(P *p)
 
 static void fail(P *p, const char *msg)
 {
-    fprintf(stderr, "psh: syntax error: %s\n", msg);
+    int line = p->cur ? p->cur->line : p->line;
+    if (line > 1) /* multi-line input or a script: say where */
+        fprintf(stderr, "psh: syntax error on line %d: %s\n", line, msg);
+    else
+        fprintf(stderr, "psh: syntax error: %s\n", msg);
     p->err = true;
 }
 
@@ -671,7 +678,7 @@ static psh_stmt *parse_stmts(P *p, const char **stops)
 
 psh_stmt *psh_parse(psh_token *tokens, bool *err, bool *incomplete)
 {
-    P p = { .cur = tokens, .err = false, .incomplete = false };
+    P p = { .cur = tokens, .line = 1, .err = false, .incomplete = false };
     psh_stmt *tree = parse_stmts(&p, NULL);
     if (!p.err && !p.incomplete && p.cur) {
         /* parse_stmts stopped on something it couldn't place. */

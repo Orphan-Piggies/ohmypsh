@@ -323,6 +323,73 @@ out=$(printf 'echo $((10 / 0))\n' | $PSH 2>/dev/null; echo x$?)
 check "division by zero cracks loudly, not fatally" "
 x0" "$out"
 
+# ---- H2: test/[ builtins, type, command -v, set -e, trap, lines ----
+
+out=$(printf 'type [\n' | $PSH)
+check "[ is a builtin now (the fork is gone)" "[ is a shell builtin" "$out"
+
+out=$(printf '[ -d src -a -f Makefile ] && echo both\n' | $PSH)
+check "test: file ops with -a" "both" "$out"
+
+out=$(printf '[ 5 -lt 10 ] && [ abc != abd ] && echo logic\n' | $PSH)
+check "test: numeric and string comparisons" "logic" "$out"
+
+out=$(printf '[ ! -f no-such-file-xirt ] && echo negated\n' | $PSH)
+check "test: ! negation" "negated" "$out"
+
+out=$(printf '[ -z "" ] && [ -n x ] && echo strings\n' | $PSH)
+check "test: -z and -n" "strings" "$out"
+
+printf '[ 5 -lt 10\n' | $PSH 2>/dev/null
+check "[ without ] is an error (status 2)" "2" "$?"
+
+printf '[ 5 -lt banana ]\n' | $PSH 2>/dev/null
+check "test: non-numeric with -lt is an error" "2" "$?"
+
+out=$(printf 'type cd\n' | $PSH)
+check "type: builtin" "cd is a shell builtin" "$out"
+
+out=$(printf 'f() { true; }\ntype f\n' | $PSH)
+check "type: function" "f is a function" "$out"
+
+printf 'type definitely-not-installed-xirt\n' | $PSH 2>/dev/null
+check "type: not found sets status 1" "1" "$?"
+
+out=$(printf 'command -v cd\n' | $PSH)
+check "command -v: builtin prints its name" "cd" "$out"
+
+out=$(printf 'command -v ls > /dev/null && echo found\n' | $PSH)
+check "command -v: PATH lookup succeeds silently" "found" "$out"
+
+out=$(printf 'command -v no-such-xirt || echo missing\n' | $PSH)
+check "command -v: missing is silent, status 1" "missing" "$out"
+
+out=$(printf 'set -e\nfalse\necho unreachable\n' | $PSH)
+check "set -e stops at the first failure" "" "$out"
+
+printf 'set -e\nfalse\necho x\n' | $PSH 2>/dev/null
+check "set -e exits with the failing status" "1" "$?"
+
+out=$(printf 'set -e\nfalse || true\nif false; then true; fi\necho survived\n' | $PSH)
+check "set -e ignores tested failures (|| and if)" "survived" "$out"
+
+out=$(printf 'trap "echo bye" EXIT\necho hi\n' | $PSH)
+check "trap EXIT fires at end of input" "hi
+bye" "$out"
+
+printf 'trap "echo t" EXIT\nexit 3\n' | $PSH > /dev/null
+check "trap preserves the exit status" "3" "$?"
+
+out=$(printf 'trap "echo no" EXIT\ntrap - EXIT\necho only\n' | $PSH)
+check "trap - EXIT clears the trap" "only" "$out"
+
+printf 'echo one\necho two\necho )\n' > "$tmp/bad.psh"
+err=$(./psh "$tmp/bad.psh" 2>&1 >/dev/null)
+case "$err" in
+    *"line 3"*) printf 'ok   script parse errors carry line numbers\n' ;;
+    *) printf 'FAIL expected "line 3" in: %s\n' "$err"; fails=$((fails + 1)) ;;
+esac
+
 rm -rf "$tmp"
 
 echo

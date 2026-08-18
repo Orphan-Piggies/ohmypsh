@@ -157,6 +157,137 @@ static int bi_source(char **argv)
     return psh_run_file(argv[1]);
 }
 
+/* Find `name` on $PATH; malloc'd full path or NULL. */
+static char *path_lookup(const char *name)
+{
+    if (strchr(name, '/'))
+        return access(name, X_OK) == 0 ? strdup(name) : NULL;
+    const char *path = psh_var_get("PATH");
+    if (!path)
+        return NULL;
+    char *copy = strdup(path);
+    if (!copy)
+        return NULL;
+    char full[PATH_MAX];
+    for (char *dir = strtok(copy, ":"); dir; dir = strtok(NULL, ":")) {
+        snprintf(full, sizeof full, "%s/%s", dir, name);
+        if (access(full, X_OK) == 0) {
+            free(copy);
+            return strdup(full);
+        }
+    }
+    free(copy);
+    return NULL;
+}
+
+static int bi_type(char **argv)
+{
+    int rc = 0;
+    for (size_t i = 1; argv[i]; i++) {
+        if (psh_function_exists(argv[i])) {
+            printf("%s is a function\n", argv[i]);
+        } else if (psh_find_builtin(argv[i])) {
+            printf("%s is a shell builtin\n", argv[i]);
+        } else {
+            char *p = path_lookup(argv[i]);
+            if (p) {
+                printf("%s is %s\n", argv[i], p);
+                free(p);
+            } else {
+                fprintf(stderr, "psh: type: %s: not found\n", argv[i]);
+                rc = 1;
+            }
+        }
+    }
+    return rc;
+}
+
+/* `command -v NAME` — the POSIX way plugins ask "is this installed?".
+ * Prints the name (function/builtin) or path (file); silent + status
+ * 1 when missing, so `if command -v rails > /dev/null` just works. */
+static int bi_command(char **argv)
+{
+    if (!argv[1] || strcmp(argv[1], "-v") != 0 || !argv[2]) {
+        fprintf(stderr,
+                "psh: command: only 'command -v NAME' is supported\n");
+        return 2;
+    }
+    int rc = 0;
+    for (size_t i = 2; argv[i]; i++) {
+        if (psh_function_exists(argv[i]) || psh_find_builtin(argv[i])) {
+            puts(argv[i]);
+        } else {
+            char *p = path_lookup(argv[i]);
+            if (p) {
+                puts(p);
+                free(p);
+            } else {
+                rc = 1;
+            }
+        }
+    }
+    return rc;
+}
+
+static int bi_set(char **argv)
+{
+    for (size_t i = 1; argv[i]; i++) {
+        if (strcmp(argv[i], "-e") == 0)
+            psh_errexit = true;
+        else if (strcmp(argv[i], "+e") == 0)
+            psh_errexit = false;
+        else {
+            fprintf(stderr, "psh: set: %s: unknown option\n", argv[i]);
+            return 2;
+        }
+    }
+    return 0;
+}
+
+/*
+ * trap 'commands' EXIT — run commands when THIS shell exits (any
+ * path: `exit`, Ctrl-D, end of script; atexit catches them all).
+ * Children die via _exit, which skips atexit — so a fork never fires
+ * the parent's trap. The pid check guards the one exception: a
+ * builtin `exit` inside a pipeline child calls exit() proper.
+ */
+static char *trap_exit_cmd;
+static pid_t trap_owner;
+
+static void run_exit_trap(void)
+{
+    static bool running;
+    if (trap_exit_cmd && !running && getpid() == trap_owner) {
+        running = true;
+        psh_run_string(trap_exit_cmd);
+    }
+}
+
+static int bi_trap(char **argv)
+{
+    if (!argv[1]) {
+        if (trap_exit_cmd)
+            printf("trap -- '%s' EXIT\n", trap_exit_cmd);
+        return 0;
+    }
+    if (!argv[2] || strcmp(argv[2], "EXIT") != 0) {
+        fprintf(stderr, "psh: trap: only the EXIT trap is supported\n");
+        return 2;
+    }
+    if (strcmp(argv[1], "-") == 0) {
+        free(trap_exit_cmd);
+        trap_exit_cmd = NULL;
+        return 0;
+    }
+    free(trap_exit_cmd);
+    trap_exit_cmd = strdup(argv[1]);
+    if (!trap_owner) {
+        trap_owner = getpid();
+        atexit(run_exit_trap);
+    }
+    return 0;
+}
+
 static int bi_help(char **argv)
 {
     (void)argv;
@@ -179,6 +310,12 @@ static const struct {
     { "fg",    psh_builtin_fg,    "bring a job to the foreground (fg [%n])" },
     { "bg",    psh_builtin_bg,    "continue a stopped job in the background" },
     { "wait",  psh_builtin_wait,  "wait for all background jobs to finish" },
+    { "test",     psh_builtin_test, "evaluate an expression (no fork)" },
+    { "[",        psh_builtin_test, "test, wearing its bracket" },
+    { "type",     bi_type,        "say what a name is (function/builtin/file)" },
+    { "command",  bi_command,     "command -v NAME: locate a command" },
+    { "set",      bi_set,         "set -e: exit on first failure (+e undoes)" },
+    { "trap",     bi_trap,        "trap 'cmds' EXIT: run commands at exit" },
     { "export",   bi_export,      "make a variable visible to children" },
     { "local",    bi_local,       "function-scoped variable" },
     { "unset",    bi_unset,       "remove a variable" },

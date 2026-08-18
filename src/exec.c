@@ -31,6 +31,11 @@
 #include "psh.h"
 
 psh_flow_t psh_flow = PSH_FLOW_NONE;
+bool psh_errexit = false;
+
+/* Depth of "tested" contexts (if/while conditions), where a failure
+ * is information, not an emergency — set -e must not fire there. */
+static int cond_depth;
 
 static int run_stmts(psh_stmt *s);
 
@@ -543,7 +548,9 @@ static int run_stmt_foreground(psh_stmt *s)
         return run_andor(s->list);
 
     case ST_IF: {
+        cond_depth++;
         int c = run_stmts(s->cond);
+        cond_depth--;
         if (psh_flow != PSH_FLOW_NONE)
             return c;
         if (c == 0)
@@ -556,7 +563,9 @@ static int run_stmt_foreground(psh_stmt *s)
         for (;;) {
             if (psh_interrupted)
                 return 130;
+            cond_depth++;
             int c = run_stmts(s->cond);
+            cond_depth--;
             if (psh_flow != PSH_FLOW_NONE || c != 0)
                 break;
             status = run_stmts(s->body);
@@ -648,6 +657,13 @@ static int run_stmts(psh_stmt *s)
         psh_last_status = status;
         if (psh_flow != PSH_FLOW_NONE)
             break; /* break/continue/return bubbles up */
+        /* set -e: an UNTESTED single-pipeline failure ends the shell.
+         * Tested places don't count: if/while conditions, and lists
+         * where && or || already inspects the status. */
+        if (psh_errexit && status != 0 && cond_depth == 0 &&
+            s->kind == ST_LIST && !s->background &&
+            s->list->conn == PSH_CONN_END)
+            exit(status);
     }
     return status;
 }

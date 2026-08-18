@@ -26,13 +26,14 @@
 #include "psh.h"
 
 static psh_token *tok_append(psh_token **head, psh_token **tail,
-                             psh_token_type type, char *text)
+                             psh_token_type type, char *text, int line)
 {
     psh_token *t = malloc(sizeof *t);
     if (!t)
         return NULL;
     t->type = type;
     t->text = text; /* takes ownership */
+    t->line = line;
     t->next = NULL;
     if (*tail)
         (*tail)->next = t;
@@ -88,6 +89,7 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
     if (!buf)
         goto oom;
 
+    int lineno = 1;
     const char *p = line;
     while (*p) {
         while (*p == ' ' || *p == '\t' || *p == '\r')
@@ -96,8 +98,9 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
             break;
 
         if (*p == '\n') {
-            if (!tok_append(&head, &tail, TOK_NEWLINE, NULL))
+            if (!tok_append(&head, &tail, TOK_NEWLINE, NULL, lineno))
                 goto oom;
+            lineno++;
             p++;
             continue;
         }
@@ -125,7 +128,8 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
         else if (*p == '2' && p[1] == '>') { op = TOK_REDIR_ERR; p += 2; }
 
         if (op >= 0) {
-            if (!tok_append(&head, &tail, (psh_token_type)op, NULL))
+            if (!tok_append(&head, &tail, (psh_token_type)op, NULL,
+                            lineno))
                 goto oom;
             continue;
         }
@@ -162,10 +166,15 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
         buf[t] = '\0';
 
         char *word = strdup(buf);
-        if (!word || !tok_append(&head, &tail, TOK_WORD, word)) {
+        if (!word || !tok_append(&head, &tail, TOK_WORD, word, lineno)) {
             free(word);
             goto oom;
         }
+        /* Quotes and $( ) can swallow newlines into a word; keep
+         * the line counter honest for the tokens that follow. */
+        for (const char *q = word; *q; q++)
+            if (*q == '\n')
+                lineno++;
     }
 
     free(buf);
