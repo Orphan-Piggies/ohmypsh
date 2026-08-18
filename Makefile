@@ -21,12 +21,22 @@ src/%.o: src/%.c src/psh.h
 test: psh
 	sh tests/smoke.sh
 
+# AddressSanitizer + LeakSanitizer build: memory errors and leaks
+# surface as loud reports. `make test-asan` runs the whole suite on it.
+psh-asan: $(SRC) src/psh.h
+	$(CC) $(CFLAGS) -fsanitize=address,leak -o $@ $(SRC) $(LDLIBS)
+
+test-asan: psh-asan
+	PSH=./psh-asan sh tests/smoke.sh
+
 PREFIX ?= /usr/local
 
 install: psh
 	install -m 755 psh $(PREFIX)/bin/psh
+	install -d $(PREFIX)/share/man/man1
+	install -m 644 docs/psh.1 $(PREFIX)/share/man/man1/psh.1
 
 clean:
-	rm -f psh $(OBJ)
+	rm -f psh psh-asan $(OBJ)
 
-.PHONY: test install clean
+.PHONY: test test-asan install clean

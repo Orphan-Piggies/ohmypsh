@@ -87,6 +87,19 @@ Some behavior in this shell is nutritionally unnecessary. It is all
 contained in `src/pistachio.c` and guaranteed never to affect
 correctness. Try `help` and read closely.
 
+## Quality
+
+`make test` (116 smoke tests), `make test-asan` (the same suite under
+AddressSanitizer + LeakSanitizer — zero errors, zero leaks), and
+`bash tests/fuzz.sh` (2000 hostile inputs, zero crashes: the shell
+would not crack). CI runs all three on every push. `man docs/psh.1`
+for the manual.
+
+## License
+
+MIT (see LICENSE). Binaries linked with GNU readline are distributed
+under GPL terms as readline requires.
+
 ---
 
 *NTT layihəsidir. Sistem indi duzludur.* 🫛

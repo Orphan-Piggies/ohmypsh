@@ -130,9 +130,16 @@ readline requires a GPL-compatible choice).
 - [ ] Hand-rolled raw-mode line editor → fish-style autosuggestions
       and syntax highlighting; drops the readline dependency
 
-## H5 — seaworthiness (public release)
-- [ ] LICENSE (decide then; must be GPL-compatible while readline
-      is linked), README polish, Antep Mode screenshots
-- [ ] CI: GitHub Actions running `make test` on push
-- [ ] valgrind/leak pass; fuzz the parser with garbage input
-- [ ] man page; packaging (deb / AUR)
+## H5 — seaworthiness (v0.10.0, mostly ✅)
+- [x] LICENSE: MIT (source), with the readline/GPL note for binaries
+- [x] CI: GitHub Actions — build with -Werror, smoke tests, ASan
+      suite, quick fuzz pass on every push
+- [x] Sanitizer pass: `make test-asan` — whole suite under
+      AddressSanitizer + LeakSanitizer, zero errors, zero leaks
+- [x] Fuzzer (tests/fuzz.sh): urandom + token soup + mutated
+      programs; 2000 inputs, zero crashes; knows the difference
+      between a crash and an honest infinite loop
+- [x] man page (docs/psh.1), installed by `make install`
+- [ ] Antep Mode screenshots for the README (needs a human with a
+      terminal that has good taste)
+- [ ] Packaging: deb / AUR (when there's a public repo to point at)

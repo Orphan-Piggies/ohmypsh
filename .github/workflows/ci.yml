@@ -1,0 +1,24 @@
+# 🫛 psh CI — every push gets built, tested, sanitized, and fuzzed.
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install readline
+        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+
+      - name: build (all warnings are errors here)
+        run: make CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -Werror -O2 -D_POSIX_C_SOURCE=200809L"
+
+      - name: smoke tests
+        run: make test
+
+      - name: smoke tests under AddressSanitizer + LeakSanitizer
+        run: make test-asan
+
+      - name: fuzz (quick pass)
+        run: bash tests/fuzz.sh 300

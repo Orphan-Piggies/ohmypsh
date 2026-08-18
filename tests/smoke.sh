@@ -4,7 +4,7 @@
 # Usage: sh tests/smoke.sh   (or: make test)
 
 cd "$(dirname "$0")/.." || exit 1
-PSH=./psh
+PSH=${PSH:-./psh}   # override to test another build: PSH=./psh-asan
 fails=0
 
 check() {
@@ -250,10 +250,10 @@ out=$(printf '%s\n' 'echo $(printf "a\nb") | wc -l' | $PSH)
 check "unquoted cmdsub joins to one line" "1" "$out"
 
 printf '#!/usr/bin/env psh\necho script-ran $1\n' > "$tmp/s.psh"
-out=$(./psh "$tmp/s.psh" world)
+out=$($PSH "$tmp/s.psh" world)
 check "script file with shebang and \$1" "script-ran world" "$out"
 
-out=$(./psh -c 'echo dash-c-works')
+out=$($PSH -c 'echo dash-c-works')
 check "psh -c" "dash-c-works" "$out"
 
 printf 'SRCVAR=from-source\n' > "$tmp/lib.psh"
@@ -384,7 +384,7 @@ out=$(printf 'trap "echo no" EXIT\ntrap - EXIT\necho only\n' | $PSH)
 check "trap - EXIT clears the trap" "only" "$out"
 
 printf 'echo one\necho two\necho )\n' > "$tmp/bad.psh"
-err=$(./psh "$tmp/bad.psh" 2>&1 >/dev/null)
+err=$($PSH "$tmp/bad.psh" 2>&1 >/dev/null)
 case "$err" in
     *"line 3"*) printf 'ok   script parse errors carry line numbers\n' ;;
     *) printf 'FAIL expected "line 3" in: %s\n' "$err"; fails=$((fails + 1)) ;;

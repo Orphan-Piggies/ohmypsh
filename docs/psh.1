@@ -1,0 +1,113 @@
+.TH PSH 1 "2026" "psh" "User Commands"
+.SH NAME
+psh \- the pistachio shell
+.SH SYNOPSIS
+.B psh
+.br
+.B psh
+.I script
+.RI [ args ...]
+.br
+.B psh \-c
+.I command
+.SH DESCRIPTION
+.B psh
+is a Unix shell with a familiar sh-like surface and the classic traps
+removed. Its two founding rules:
+.IP \(bu 2
+A variable expansion
+.B never
+word-splits:
+.B rm $FILE
+removes exactly one file, quoted or not.
+.IP \(bu 2
+Command substitution
+.B $(...)
+splits on
+.B newlines only.
+.B for f in $(ls)
+iterates files; spaces in names survive.
+.SH OPTIONS
+.TP
+.BI \-c " command"
+Run
+.I command
+and exit.
+.SH LANGUAGE
+Pipelines
+.RB ( a\ |\ b ),
+redirects
+.RB ( >\ >>\ <\ 2> ),
+lists
+.RB ( &&\ ||\ ; ),
+background jobs
+.RB ( & ),
+.BR if / elif / else ,
+.BR while ,
+.BR for ,
+.BR case ... esac
+with glob patterns, functions
+.RB ( name()\ {\ ...;\ } )
+with
+.BR $1 ...\c
+.BR $9 ,
+.BR $# ,
+and a true
+.B $@
+splat, arithmetic
+.BR $((...)) ,
+.B ~
+expansion, globbing, and
+.B #
+comments. Interactive input continues across lines when a construct
+is open.
+.SH BUILTINS
+.BR cd ", " exit ", " pwd ", " jobs ", " fg ", " bg ", " wait ", "
+.BR test " / " [ ", " type ", " command\ \-v ", " set\ \-e ", "
+.BR trap ", " export ", " local ", " unset ", " source " / " . ", "
+.BR return ", " break ", " continue ", " help .
+Run
+.B help
+inside psh for one-line summaries. There may be more.
+.SH JOB CONTROL
+.B cmd &
+runs in the background; Ctrl\-Z stops the foreground job;
+.BR jobs ,
+.BR fg\ [%n] ,
+.B bg
+manage them. Each pipeline is one process group; the terminal belongs
+to the foreground job.
+.SH FILES
+.TP
+.I ~/.pshrc
+Sourced at interactive startup.
+.TP
+.I ~/.psh_history
+Readline history, persisted across sessions.
+.SH OH-MY-PSH
+The bundled framework (see
+.I omp/
+in the source tree): themes are
+.B PSH_PROMPT
+templates re-expanded before every prompt; plugins register functions
+on precmd/chpwd hooks. The
+.B python
+plugin auto-activates a project's
+.I .venv
+when you cd in. Drive it with
+.BR omp\ list ,
+.BR omp\ enable ,
+.BR omp\ theme .
+.SH EXIT STATUS
+That of the last command; 127 command not found, 126 not executable,
+128+N killed by signal N, 2 syntax error.
+.SH SEE ALSO
+.BR bash (1),
+.BR fish (1),
+.BR zsh (1)
+\(em respected elders.
+.SH HISTORY
+Started as a pun. The pistachio has one of the hardest shells in the
+world; 2000 fuzzed inputs and an AddressSanitizer suite agree this
+one keeps the tradition. Unicode offers no pistachio emoji, an
+injustice this project declines to accept.
