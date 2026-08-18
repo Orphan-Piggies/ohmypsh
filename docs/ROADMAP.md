@@ -138,8 +138,15 @@ the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
       ~/.psh_history with readline, SIGWINCH, Ctrl-C aborts the
       line. tests/editor.sh drives it through a real pty
       (make test-editor; local for now — pty timing on CI is jittery)
-- [ ] H4.2 completion off the readline API (shared logic with
-      complete.c), Ctrl-R incremental history search, bracketed paste
+- [x] H4.2 complete.c split into a readline-free candidate ENGINE
+      (commands + new filename completer, sorted, dirs get '/') and
+      thin readline glue; cockpit Tab: unique → insert (+space),
+      else extend common prefix, else list in columns (capped 120);
+      Ctrl-R incremental reverse search (the search UI is just a
+      temporary prompt — same renderer); bracketed paste: multi-line
+      pastes land IN the buffer, Enter submits the lot (renderer
+      learned embedded newlines via the cell-walk rewrite — which
+      made multi-line EDITING work too)
 - [ ] H4.3 the prizes: grey autosuggestions from history (→ accepts),
       syntax highlighting straight from the real lexer
 - [ ] H4.4 flip the default, drop -lreadline, un-note the LICENSE,

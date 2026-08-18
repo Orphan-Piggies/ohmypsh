@@ -1,25 +1,36 @@
 /*
- * complete.c — tab completion.
+ * complete.c — completion candidates, and the readline glue.
  *
- * Readline already ships filename completion; the only thing a shell
- * must add is COMMAND completion for the first word of a command.
- * "First word" means: at the start of the line, or right after an
- * operator that begins a new command (| ; & && ||).
+ * Since H4.2 this file has two layers. The ENGINE (readline-free)
+ * produces candidate lists and is shared by both line editors:
  *
- * Candidates are the builtins plus every executable-looking name in
- * $PATH. We don't stat() for the executable bit — bash doesn't
+ *   psh_complete_commands  builtins + $PATH names matching a prefix
+ *   psh_complete_files     directory entries matching a path prefix
+ *                          (dirs get a trailing '/'; understands ~/)
+ *
+ * The GLUE at the bottom adapts the command engine to readline's
+ * generator protocol; readline's own filename completion still serves
+ * as its fallback. The glue goes overboard with readline in H4.4.
+ *
+ * Candidates don't stat() for the executable bit — bash doesn't
  * either by default, and directory scans should stay cheap.
  */
 #define _POSIX_C_SOURCE 200809L
 
 #include <dirent.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <readline/readline.h>
 
 #include "psh.h"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static bool listv_add(char ***v, size_t *n, size_t *cap, const char *s)
 {
@@ -41,7 +52,32 @@ static bool listv_add(char ***v, size_t *n, size_t *cap, const char *s)
     return true;
 }
 
-static char **collect_commands(const char *prefix)
+static int cmp_str(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static char **listv_seal(char **v, size_t n)
+{
+    if (n == 0) {
+        free(v);
+        return NULL;
+    }
+    qsort(v, n, sizeof *v, cmp_str);
+    v[n] = NULL;
+    return v;
+}
+
+void psh_complete_free(char **v)
+{
+    if (!v)
+        return;
+    for (size_t i = 0; v[i]; i++)
+        free(v[i]);
+    free(v);
+}
+
+char **psh_complete_commands(const char *prefix)
 {
     size_t cap = 32, n = 0;
     char **v = malloc(cap * sizeof *v);
@@ -69,14 +105,68 @@ static char **collect_commands(const char *prefix)
         }
         free(copy);
     }
+    return listv_seal(v, n);
+}
 
-    if (n == 0) {
-        free(v);
+/*
+ * Complete `word` as a path. Candidates are BASENAMES (directories
+ * get a trailing '/'); *base_off tells the caller where the basename
+ * begins inside `word`, i.e. how much of it the candidates replace.
+ * A leading ~/ is expanded only for the directory scan — the caller
+ * keeps whatever the user actually typed.
+ */
+char **psh_complete_files(const char *word, size_t *base_off)
+{
+    const char *slash = strrchr(word, '/');
+    size_t doff = slash ? (size_t)(slash - word) + 1 : 0;
+    *base_off = doff;
+    const char *base = word + doff;
+    size_t blen = strlen(base);
+
+    char scan[PATH_MAX];
+    if (doff == 0) {
+        strcpy(scan, ".");
+    } else if (word[0] == '~' && word[1] == '/') {
+        const char *home = psh_var_get("HOME");
+        snprintf(scan, sizeof scan, "%s%.*s", home ? home : "",
+                 (int)(doff - 1), word + 1);
+    } else {
+        snprintf(scan, sizeof scan, "%.*s", (int)doff, word);
+    }
+
+    DIR *d = opendir(scan);
+    if (!d)
+        return NULL;
+    size_t cap = 32, n = 0;
+    char **v = malloc(cap * sizeof *v);
+    if (!v) {
+        closedir(d);
         return NULL;
     }
-    v[n] = NULL;
-    return v;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+            continue;
+        if (e->d_name[0] == '.' && base[0] != '.')
+            continue; /* hidden files only when asked for */
+        if (strncmp(e->d_name, base, blen) != 0)
+            continue;
+        char full[PATH_MAX + 300];
+        snprintf(full, sizeof full, "%s/%s", scan, e->d_name);
+        struct stat st;
+        if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
+            char with[300];
+            snprintf(with, sizeof with, "%s/", e->d_name);
+            listv_add(&v, &n, &cap, with);
+        } else {
+            listv_add(&v, &n, &cap, e->d_name);
+        }
+    }
+    closedir(d);
+    return listv_seal(v, n);
 }
+
+/* ---------------- readline glue (retires in H4.4) ---------------- */
 
 /*
  * Readline's generator protocol: called with state==0 to start, then
@@ -89,7 +179,7 @@ static char *cmd_generator(const char *text, int state)
     static size_t idx;
 
     if (state == 0) {
-        list = collect_commands(text);
+        list = psh_complete_commands(text);
         idx = 0;
     }
     if (list && list[idx])

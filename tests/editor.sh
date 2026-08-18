@@ -34,6 +34,11 @@ echo one two\0027\n
 echo AABB\0001\0033[C\0033[C\0033[C\0033[C\0033[C\0033[C\0013\n
 \0033[A\n
 echo end\0002\0002\0002!\n
+whoam\011\n
+echo unique-fnd42\n
+\0022fnd42\n
+head -1 READM\011\n
+\0033[200~echo pasted\necho again\0033[201~\n
 exit\n
 EOF
 )
@@ -49,6 +54,13 @@ check "ctrl-a + ctrl-k"              "$(has '^A$')"
 n=$(printf '%s\n' "$out" | grep -ac '^A$')
 check "up-arrow recalls history"     "$([ "$n" = 2 ] && echo yes)"
 check "ctrl-b moves the cursor"      "$(has '^!end$')"
+check "tab completes a command"      "$(has "^$(whoami)\$")"
+n=$(printf '%s\n' "$out" | grep -ac '^unique-fnd42$')
+check "ctrl-r finds and executes"    "$([ "$n" = 2 ] && echo yes)"
+check "tab completes a filename"     "$(has '^# 🫛 psh')"
+check "paste lands without running"  "$(has '^pasted$')"
+n=$(printf '%s\n' "$out" | grep -ac '^again$')
+check "pasted 2nd line runs on ⏎"    "$([ "$n" = 1 ] && echo yes)"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

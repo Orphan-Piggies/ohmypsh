@@ -8,16 +8,26 @@
  * from scratch after each key.
  *
  * The renderer's mental model (the only hard part):
- *   The prompt + buffer occupy N terminal rows once wrapped at the
- *   terminal width. We remember which of those rows the cursor was
+ *   Prompt + buffer occupy N terminal rows once wrapped at the
+ *   terminal width (embedded newlines — themes, pasted multi-line
+ *   commands — also break rows). We remember which row the cursor was
  *   left on (cur_row). To repaint: cursor up cur_row rows, carriage
  *   return, clear to end of screen, rewrite everything, then park the
  *   cursor by moving up from the bottom row. All positions are
- *   DISPLAY COLUMNS — computed by decoding UTF-8 and asking wcwidth,
- *   never by counting bytes (ə is one column, 🫛 is two, and \001..\002
- *   brackets mark zero-width escape sequences, readline's convention).
+ *   DISPLAY CELLS, computed by walking the text: decode UTF-8, ask
+ *   wcwidth (ə is one column, 🫛 is two), skip \001..\002 escape
+ *   brackets (readline's convention), and track the terminal's
+ *   pending-wrap quirk — after a glyph lands EXACTLY in the last
+ *   column, the cursor hangs there until the next glyph wraps it.
  *
  * The buffer itself is bytes; the cursor moves by whole codepoints.
+ *
+ * H4.2 additions: Tab completion (candidates from complete.c's shared
+ * engine), Ctrl-R incremental reverse search (the search "mode" is
+ * just a temporary prompt — the same renderer draws it), and
+ * bracketed paste (multi-line pastes land IN the buffer instead of
+ * executing line by line; Enter submits the whole thing, which the
+ * lexer already speaks fluently).
  *
  * Opt-in for now: PSH_EDITOR=nut switches from readline to this, live
  * (it's checked every prompt). Readline stays the default until the
@@ -129,11 +139,51 @@ static unsigned decode_cp(const char *s, size_t n)
     }
 }
 
-/* Display width of the first n bytes: skips \001..\002 (escape
- * brackets) and raw CSI sequences, decodes UTF-8, asks wcwidth. */
+static size_t cp_width(const char *s, size_t cl)
+{
+    int w = wcwidth((wchar_t)decode_cp(s, cl));
+    return w > 0 ? (size_t)w : 1;
+}
+
+/* Plain display width (no wrapping) — for laying out candidate
+ * columns. Skips \001..\002 and raw CSI sequences. */
 static size_t disp_width(const char *s, size_t n)
 {
     size_t w = 0, i = 0;
+    while (i < n && s[i]) {
+        if (s[i] == '\001') {
+            while (i < n && s[i] && s[i] != '\002')
+                i++;
+            if (i < n)
+                i++;
+        } else if (s[i] == '\033') {
+            i++;
+            while (i < n && s[i] && !((s[i] >= 'A' && s[i] <= 'Z') ||
+                                      (s[i] >= 'a' && s[i] <= 'z')))
+                i++;
+            if (i < n)
+                i++;
+        } else {
+            size_t cl = cp_len((unsigned char)s[i]);
+            if (i + cl > n)
+                break;
+            w += cp_width(s + i, cl);
+            i += cl;
+        }
+    }
+    return w;
+}
+
+/* ---------------- the cell walk: where does text land? ------------ */
+
+struct cell {
+    size_t row, col;
+    bool pending; /* glyph filled the last column; wrap is pending */
+};
+
+static void cell_walk(struct cell *p, size_t cols, const char *s, size_t n)
+{
+    size_t i = 0;
     while (i < n && s[i]) {
         if (s[i] == '\001') { /* invisible until \002 */
             while (i < n && s[i] && s[i] != '\002')
@@ -147,29 +197,41 @@ static size_t disp_width(const char *s, size_t n)
                 i++;
             if (i < n)
                 i++;
+        } else if (s[i] == '\n') {
+            p->row++;
+            p->col = 0;
+            p->pending = false;
+            i++;
         } else {
+            if (p->pending) {
+                p->row++;
+                p->col = 0;
+                p->pending = false;
+            }
             size_t cl = cp_len((unsigned char)s[i]);
             if (i + cl > n)
                 break;
-            int cw = wcwidth((wchar_t)decode_cp(s + i, cl));
-            w += cw > 0 ? (size_t)cw : 1;
+            size_t w = cp_width(s + i, cl);
+            p->col += w;
+            if (p->col == cols) {
+                p->pending = true;
+            } else if (p->col > cols) { /* wide glyph wrapped whole */
+                p->row++;
+                p->col = w;
+            }
             i += cl;
         }
     }
-    return w;
 }
 
-/* A prompt may contain newlines (themes can). Width math only cares
- * about the LAST prompt line; earlier lines just add rows. */
-static void prompt_metrics(const char *p, size_t *width, size_t *newlines)
+/* Where the cursor should sit for a walk result. */
+static void cell_norm(struct cell *p)
 {
-    const char *last = strrchr(p, '\n');
-    *newlines = 0;
-    for (const char *q = p; *q; q++)
-        if (*q == '\n')
-            (*newlines)++;
-    last = last ? last + 1 : p;
-    *width = disp_width(last, strlen(last));
+    if (p->pending) {
+        p->row++;
+        p->col = 0;
+        p->pending = false;
+    }
 }
 
 /* ---------------- output buffer: one write per repaint ------------ */
@@ -258,7 +320,6 @@ static size_t term_cols(void)
 
 struct el {
     const char *prompt;
-    size_t pw, pnl;    /* prompt: last-line width, newline count */
     char *buf;
     size_t len, cap;   /* bytes */
     size_t pos;        /* cursor, byte offset */
@@ -302,17 +363,16 @@ static void el_delete(struct el *e, size_t from, size_t to)
     e->buf[e->len] = '\0';
 }
 
-/*
- * The repaint. See the header comment for the model; the one quirk
- * handled here: when content ends EXACTLY at the right edge, the
- * terminal holds the cursor in the last column ("pending wrap"), so
- * we force the wrap with a real newline to keep the math honest.
- */
+/* The repaint. See the header comment for the model. */
 static void refresh(struct el *e)
 {
     struct obuf o = { 0 };
-    size_t bw = disp_width(e->buf, e->len);
-    size_t cw = disp_width(e->buf, e->pos);
+    struct cell cur = { 0 }, end;
+    cell_walk(&cur, e->cols, e->prompt, strlen(e->prompt));
+    cell_walk(&cur, e->cols, e->buf, e->pos);
+    end = cur;
+    cell_walk(&end, e->cols, e->buf + e->pos, e->len - e->pos);
+    cell_norm(&cur);
 
     if (e->cur_row > 0)
         ob_fmt(&o, "\033[%zuA", e->cur_row);
@@ -323,21 +383,29 @@ static void refresh(struct el *e)
             ob_put(&o, p, 1);
     ob_put(&o, e->buf, e->len);
 
-    size_t end_row = e->pnl + (e->pw + bw) / e->cols;
-    if ((e->pw + bw) > 0 && (e->pw + bw) % e->cols == 0)
-        ob_str(&o, "\n"); /* force the pending wrap */
-
-    size_t crow = e->pnl + (e->pw + cw) / e->cols;
-    size_t ccol = (e->pw + cw) % e->cols;
-    if (end_row > crow)
-        ob_fmt(&o, "\033[%zuA", end_row - crow);
+    size_t final_row = end.row;
+    if (end.pending) { /* content ends flush right: force the wrap */
+        ob_str(&o, "\n");
+        final_row++;
+    }
+    if (final_row > cur.row)
+        ob_fmt(&o, "\033[%zuA", final_row - cur.row);
     ob_str(&o, "\r");
-    if (ccol > 0)
-        ob_fmt(&o, "\033[%zuC", ccol);
+    if (cur.col > 0)
+        ob_fmt(&o, "\033[%zuC", cur.col);
 
     ob_flush(&o);
     free(o.b);
-    e->cur_row = crow;
+    e->cur_row = cur.row;
+}
+
+/* Rows the full paint occupies — for stepping below it. */
+static size_t paint_rows(struct el *e)
+{
+    struct cell c = { 0 };
+    cell_walk(&c, e->cols, e->prompt, strlen(e->prompt));
+    cell_walk(&c, e->cols, e->buf, e->len);
+    return c.row + (c.pending ? 1 : 0);
 }
 
 /* ---------------- keys ---------------- */
@@ -378,6 +446,59 @@ static void hist_to(struct el *e, size_t ix)
     el_set(e, ix == hist_n ? (e->saved ? e->saved : "") : hist[ix]);
 }
 
+/* ---------------- bracketed paste ---------------- */
+
+/*
+ * Everything between ESC[200~ and ESC[201~ arrived as ONE paste: it
+ * goes into the buffer instead of executing line by line — that's
+ * the entire point. \r becomes \n (terminals paste newlines as \r),
+ * other control bytes are dropped, trailing newlines stripped so a
+ * copied line doesn't fire on landing. Enter submits the whole thing;
+ * multi-line input is already the lexer's native language.
+ */
+static void read_paste(struct el *e)
+{
+    static const char terminator[] = "\033[201~";
+    char *pb = NULL;
+    size_t n = 0, cap = 0, m = 0;
+    for (;;) {
+        char c;
+        ssize_t r = read(STDIN_FILENO, &c, 1);
+        if (r < 0 && errno == EINTR)
+            continue;
+        if (r <= 0)
+            break;
+        if (c == terminator[m]) {
+            if (++m == sizeof terminator - 1)
+                break;
+            continue;
+        }
+        if (n + m + 2 > cap) {
+            cap = (n + m + 2) * 2 + 64;
+            pb = realloc(pb, cap);
+        }
+        memcpy(pb + n, terminator, m); /* partial match was literal */
+        n += m;
+        m = (c == terminator[0]) ? 1 : 0;
+        if (m == 0)
+            pb[n++] = c;
+    }
+    if (!pb)
+        return;
+
+    size_t out = 0;
+    for (size_t i = 0; i < n; i++) {
+        char c = pb[i] == '\r' ? '\n' : pb[i];
+        if ((unsigned char)c >= 32 || c == '\n' || c == '\t' ||
+            (unsigned char)c >= 0x80)
+            pb[out++] = c;
+    }
+    while (out > 0 && pb[out - 1] == '\n')
+        out--;
+    el_insert(e, pb, out);
+    free(pb);
+}
+
 static void handle_escape(struct el *e)
 {
     if (!pending_input())
@@ -411,12 +532,14 @@ static void handle_escape(struct el *e)
             }
             seq[n] = '\0';
             if (c == '~') {
-                if (seq[0] == '3' && n == 1) /* Delete */
+                if (strcmp(seq, "3") == 0) /* Delete */
                     el_delete(e, e->pos, next_cp(e->buf, e->len, e->pos));
-                else if ((seq[0] == '1' || seq[0] == '7') && n == 1)
+                else if (strcmp(seq, "1") == 0 || strcmp(seq, "7") == 0)
                     e->pos = 0;
-                else if ((seq[0] == '4' || seq[0] == '8') && n == 1)
+                else if (strcmp(seq, "4") == 0 || strcmp(seq, "8") == 0)
                     e->pos = e->len;
+                else if (strcmp(seq, "200") == 0)
+                    read_paste(e);
             } else if (strcmp(seq, "1;5") == 0) { /* Ctrl-arrows */
                 if (c == 'C') word_fwd(e);
                 if (c == 'D') word_back(e);
@@ -424,6 +547,230 @@ static void handle_escape(struct el *e)
             return;
         }
     }
+}
+
+/* ---------------- tab completion ---------------- */
+
+static bool word_break_char(char c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '|' || c == ';' ||
+           c == '&' || c == '<' || c == '>' || c == '(' || c == ')';
+}
+
+/* Print candidates in columns below the line, then repaint fresh. */
+#define LIST_CAP 120
+static void list_candidates(struct el *e, char **v, size_t n)
+{
+    struct obuf o = { 0 };
+    size_t below = paint_rows(e) - e->cur_row;
+    if (below > 0)
+        ob_fmt(&o, "\033[%zuB", below);
+    ob_str(&o, "\r\n");
+
+    size_t shown = n > LIST_CAP ? LIST_CAP : n;
+    size_t maxw = 0;
+    for (size_t i = 0; i < shown; i++) {
+        size_t w = disp_width(v[i], strlen(v[i]));
+        if (w > maxw)
+            maxw = w;
+    }
+    maxw += 2;
+    size_t percol = e->cols / maxw;
+    if (percol == 0)
+        percol = 1;
+    for (size_t i = 0; i < shown; i++) {
+        ob_str(&o, v[i]);
+        if ((i + 1) % percol == 0 || i + 1 == shown) {
+            ob_str(&o, "\r\n");
+        } else {
+            size_t pad = maxw - disp_width(v[i], strlen(v[i]));
+            for (size_t k = 0; k < pad; k++)
+                ob_str(&o, " ");
+        }
+    }
+    if (n > shown) {
+        char more[64];
+        snprintf(more, sizeof more, "… and %zu more\r\n", n - shown);
+        ob_str(&o, more);
+    }
+    ob_flush(&o);
+    free(o.b);
+    e->cur_row = 0; /* we're on a fresh row; repaint from here */
+    refresh(e);
+}
+
+static void do_complete(struct el *e)
+{
+    size_t ws = e->pos;
+    while (ws > 0 && !word_break_char(e->buf[ws - 1]))
+        ws--;
+
+    /* Command position? Nothing but blanks since the last operator. */
+    bool cmdpos = true;
+    for (size_t k = ws; k > 0;) {
+        k--;
+        char ch = e->buf[k];
+        if (ch == ' ' || ch == '\t')
+            continue;
+        cmdpos = (ch == '|' || ch == ';' || ch == '&' || ch == '\n' ||
+                  ch == '(');
+        break;
+    }
+
+    char *word = strndup(e->buf + ws, e->pos - ws);
+    if (!word)
+        return;
+    size_t base_off = 0;
+    char **v = cmdpos ? psh_complete_commands(word)
+                      : psh_complete_files(word, &base_off);
+    if (!v) {
+        free(word);
+        return;
+    }
+    size_t n = 0;
+    while (v[n])
+        n++;
+
+    const char *base = word + (cmdpos ? 0 : base_off);
+    size_t blen = strlen(base);
+
+    size_t lcp = strlen(v[0]); /* longest common prefix */
+    for (size_t i = 1; i < n; i++) {
+        size_t k = 0;
+        while (k < lcp && v[i][k] == v[0][k])
+            k++;
+        lcp = k;
+    }
+    while (lcp > blen && ((unsigned char)v[0][lcp] & 0xC0) == 0x80)
+        lcp--; /* never cut a codepoint in half */
+
+    if (n == 1) {
+        el_insert(e, v[0] + blen, strlen(v[0]) - blen);
+        if (v[0][strlen(v[0]) - 1] != '/')
+            el_insert(e, " ", 1); /* dirs stay open for more */
+    } else if (lcp > blen) {
+        el_insert(e, v[0] + blen, lcp - blen);
+    } else {
+        list_candidates(e, v, n);
+    }
+    psh_complete_free(v);
+    free(word);
+}
+
+/* ---------------- Ctrl-R: incremental reverse search -------------- */
+
+/* Scan history newest→oldest starting at `start` for `q`; on a hit,
+ * show it (cursor on the match) and record where. */
+static bool search_show(struct el *e, size_t start, const char *q,
+                        size_t *ix)
+{
+    if (hist_n == 0 || !*q)
+        return false;
+    for (size_t i = start + 1; i-- > 0;) {
+        const char *hit = strstr(hist[i], q);
+        if (hit) {
+            size_t off = (size_t)(hit - hist[i]);
+            *ix = i;
+            el_set(e, hist[i]);
+            e->pos = off;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Returns 0 = keep editing, 1 = accept (execute), 2 = ^C abort. */
+static int do_search(struct el *e)
+{
+    char q[128] = "";
+    size_t ql = 0;
+    size_t ix = hist_n; /* current match; hist_n = none yet */
+    char *orig = strdup(e->buf);
+    size_t orig_pos = e->pos;
+    const char *saved_prompt = e->prompt;
+    char sp[192];
+    bool failed = false;
+    int verdict = 0;
+
+    for (;;) {
+        snprintf(sp, sizeof sp, "(%sreverse-i-search)`%s': ",
+                 failed ? "failed " : "", q);
+        e->prompt = sp;
+        refresh(e);
+
+        unsigned char c;
+        ssize_t r = read(STDIN_FILENO, &c, 1);
+        if (r < 0 && errno == EINTR) {
+            if (winched) {
+                winched = 0;
+                e->cols = term_cols();
+                e->cur_row = 0;
+                (void)!write(STDOUT_FILENO, "\r\033[J", 4);
+            }
+            if (psh_interrupted) {
+                verdict = 2;
+                break;
+            }
+            continue;
+        }
+        if (r <= 0)
+            break;
+
+        if (c == 18) { /* ^R again: strictly older */
+            if (ix == hist_n)
+                failed = !search_show(e, hist_n - 1, q, &ix);
+            else if (ix == 0)
+                failed = true;
+            else
+                failed = !search_show(e, ix - 1, q, &ix);
+        } else if (c == 7) { /* ^G: cancel, restore the original */
+            el_set(e, orig);
+            e->pos = orig_pos;
+            break;
+        } else if (c == '\r' || c == '\n') {
+            verdict = 1;
+            break;
+        } else if (c == 127 || c == 8) {
+            if (ql > 0) {
+                q[--ql] = '\0';
+                failed = *q ? !search_show(e, hist_n - 1, q, &ix) : false;
+                if (!*q) {
+                    el_set(e, orig);
+                    e->pos = orig_pos;
+                    ix = hist_n;
+                }
+            }
+        } else if (c == '\033') {
+            if (pending_input()) { /* swallow the sequence, then leave */
+                char junk;
+                while (pending_input() && read(STDIN_FILENO, &junk, 1) == 1)
+                    ;
+            }
+            break; /* ESC (or any arrow): accept what's shown, edit on */
+        } else if (c >= 32 || c >= 0x80) {
+            char seq[4] = { (char)c };
+            size_t need = cp_len(c);
+            for (size_t i = 1; i < need; i++)
+                if (read(STDIN_FILENO, seq + i, 1) != 1) {
+                    need = i;
+                    break;
+                }
+            if (ql + need < sizeof q) {
+                memcpy(q + ql, seq, need);
+                ql += need;
+                q[ql] = '\0';
+                /* stay on the current match if it still fits */
+                failed = !search_show(
+                    e, ix == hist_n ? hist_n - 1 : ix, q, &ix);
+            }
+        } else {
+            break; /* any other control key: accept and edit on */
+        }
+    }
+
+    e->prompt = saved_prompt;
+    free(orig);
+    return verdict;
 }
 
 /* ---------------- the entry points ---------------- */
@@ -453,10 +800,10 @@ char *psh_editor_readline(const char *prompt)
     struct sigaction sa = { 0 }, old_winch;
     sa.sa_handler = on_winch; /* no SA_RESTART: read must EINTR */
     sigaction(SIGWINCH, &sa, &old_winch);
+    (void)!write(STDOUT_FILENO, "\033[?2004h", 8); /* bracketed paste */
 
     struct el e = { .prompt = prompt, .cols = term_cols(),
                     .hist_ix = hist_n };
-    prompt_metrics(prompt, &e.pw, &e.pnl);
     el_ensure(&e, 64);
     e.buf[0] = '\0';
     refresh(&e);
@@ -475,7 +822,7 @@ char *psh_editor_readline(const char *prompt)
             }
             if (psh_interrupted) { /* Ctrl-C: abandon the line */
                 psh_interrupted = 0;
-                (void)!write(STDOUT_FILENO, "^C\n", 3);
+                (void)!write(STDOUT_FILENO, "^C\033[?2004l\n", 11);
                 result = strdup("");
                 break;
             }
@@ -483,20 +830,25 @@ char *psh_editor_readline(const char *prompt)
             continue;
         }
         if (n <= 0) { /* EOF / error */
+            (void)!write(STDOUT_FILENO, "\033[?2004l", 8);
             result = e.len ? strdup(e.buf) : NULL;
             break;
         }
         switch (c) {
         case '\r':
         case '\n':
+submit:
             e.pos = e.len;
             refresh(&e);
-            (void)!write(STDOUT_FILENO, "\n", 1);
+            /* paste-mode off BEFORE the newline hands the screen to
+             * the command — nothing may leak into its output line */
+            (void)!write(STDOUT_FILENO, "\033[?2004l\n", 9);
             result = strdup(e.buf);
             done = true;
             continue;
         case 4: /* Ctrl-D: EOF on empty, delete-char otherwise */
             if (e.len == 0) {
+                (void)!write(STDOUT_FILENO, "\033[?2004l", 8);
                 done = true;
                 continue;
             }
@@ -523,6 +875,19 @@ char *psh_editor_readline(const char *prompt)
             break;
         case 14: if (e.hist_ix < hist_n) hist_to(&e, e.hist_ix + 1);
             break;                                               /* ^N */
+        case 18: {                                               /* ^R */
+            int verdict = do_search(&e);
+            if (verdict == 1)
+                goto submit;
+            if (verdict == 2) {
+                psh_interrupted = 0;
+                (void)!write(STDOUT_FILENO, "^C\033[?2004l\n", 11);
+                result = strdup("");
+                done = true;
+                continue;
+            }
+            break;
+        }
         case 20: {                                               /* ^T */
             if (e.len < 2 || e.pos == 0)
                 break;
@@ -540,7 +905,8 @@ char *psh_editor_readline(const char *prompt)
             (void)!write(STDOUT_FILENO, "\033[H\033[2J", 7);
             e.cur_row = 0;
             break;
-        case '\t': /* completion arrives in H4.2 */
+        case '\t':
+            do_complete(&e);
             break;
         case '\033':
             handle_escape(&e);

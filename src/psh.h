@@ -215,8 +215,11 @@ int psh_builtin_fg(char **argv);
 int psh_builtin_bg(char **argv);
 int psh_builtin_wait(char **argv);
 
-/* complete.c */
-void psh_completion_init(void);
+/* complete.c — candidate engine (shared by both editors) + glue */
+void psh_completion_init(void); /* readline glue */
+char **psh_complete_commands(const char *prefix); /* NULL-term, sorted */
+char **psh_complete_files(const char *word, size_t *base_off);
+void psh_complete_free(char **v);
 
 /* editor.c — the cockpit. Active when PSH_EDITOR=nut (checked every
  * prompt, so it can be toggled live). History is file-compatible with
