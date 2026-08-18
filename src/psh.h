@@ -15,6 +15,8 @@
  *   jobs.c      job control: process groups, tcsetpgrp, Ctrl-Z
  *   builtins.c  commands that must run inside the shell process
  *   complete.c  tab completion
+ *   editor.c    the cockpit: hand-rolled raw-mode line editor (H4);
+ *               opt-in via PSH_EDITOR=nut while readline is default
  *   pistachio.c 🫛 flavor, banners, and easter pistachios
  *
  * Ordering that mirrors real shells: parse FIRST, expand at EXECUTION
@@ -215,6 +217,15 @@ int psh_builtin_wait(char **argv);
 
 /* complete.c */
 void psh_completion_init(void);
+
+/* editor.c — the cockpit. Active when PSH_EDITOR=nut (checked every
+ * prompt, so it can be toggled live). History is file-compatible with
+ * readline's ~/.psh_history. */
+bool psh_editor_active(void);
+char *psh_editor_readline(const char *prompt); /* malloc'd, no \n; NULL=EOF */
+void psh_editor_hist_load(const char *path);
+void psh_editor_hist_add(const char *line);
+void psh_editor_hist_save(const char *path);
 
 /* builtins.c */
 typedef int (*psh_builtin_fn)(char **argv);

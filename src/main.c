@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <locale.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -42,9 +43,16 @@ const char *psh_arg0 = "psh";
 
 static char hist_path[PATH_MAX];
 
+/* Both editors' histories are fed all session long (they share the
+ * file format), so PSH_EDITOR can flip mid-session without losing
+ * anything; whichever is active at exit writes the file. */
 static void save_history(void)
 {
-    if (hist_path[0])
+    if (!hist_path[0])
+        return;
+    if (psh_editor_active())
+        psh_editor_hist_save(hist_path);
+    else
         write_history(hist_path);
 }
 
@@ -271,6 +279,7 @@ static void repl_interactive(void)
         snprintf(hist_path, sizeof hist_path, "%s/.psh_history", home);
         read_history(hist_path);
         stifle_history(1000);
+        psh_editor_hist_load(hist_path);
         /* atexit catches BOTH exit paths: Ctrl-D and the `exit`
          * builtin (which calls exit() from deep in builtins.c). */
         atexit(save_history);
@@ -293,7 +302,9 @@ static void repl_interactive(void)
             psh_jobs_notify();
             build_prompt(prompt, sizeof prompt);
         }
-        char *line = readline(acc ? "  > " : prompt);
+        const char *p = acc ? "  > " : prompt;
+        char *line = psh_editor_active() ? psh_editor_readline(p)
+                                         : readline(p);
         if (!line) { /* Ctrl-D */
             if (acc) { /* abandon the half-typed construct */
                 fprintf(stderr,
@@ -306,8 +317,10 @@ static void repl_interactive(void)
             puts("exit");
             break;
         }
-        if (*line)
+        if (*line) {
             add_history(line);
+            psh_editor_hist_add(line);
+        }
         if (!acc_append(&acc, line)) {
             free(line);
             continue;
@@ -344,6 +357,10 @@ static void repl_stdin(void)
 
 int main(int argc, char **argv)
 {
+    /* The editor's cursor math decodes UTF-8 and asks wcwidth for
+     * display columns (ə is 1, 🫛 is 2) — needs the user's locale. */
+    setlocale(LC_CTYPE, "");
+
     /* psh -c 'commands' [args...] */
     if (argc >= 3 && strcmp(argv[1], "-c") == 0) {
         psh_script_args = argv + 3;

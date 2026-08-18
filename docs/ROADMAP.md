@@ -125,9 +125,25 @@ readline requires a GPL-compatible choice).
 - [x] C bonus: hyphenated function names (venv-init) now parse,
       as in bash/zsh
 
-## H4 — the cockpit (parked, revisit after H1–H3)
-- [ ] Hand-rolled raw-mode line editor → fish-style autosuggestions
-      and syntax highlighting; drops the readline dependency
+## H4 — the cockpit (unparked 2026-08-18; staged like the M-days)
+Hand-rolled raw-mode line editor → fish-style autosuggestions and
+syntax highlighting; drops the readline dependency. Readline stays
+the DEFAULT until parity — the cockpit is opt-in via PSH_EDITOR=nut
+(checked every prompt, so it toggles live).
+- [x] H4.1 editor.c: termios raw mode (TCSADRAIN — type-ahead
+      survives), multi-row repaint renderer wrapping at the terminal
+      width, UTF-8 codepoint cursor with wcwidth display math (ə is
+      one column, 🫛 is two), emacs keys (^A^E^B^F^K^U^W^T, arrows,
+      Home/End/Delete, Alt-b/f, Ctrl-arrows), ↑↓ history sharing
+      ~/.psh_history with readline, SIGWINCH, Ctrl-C aborts the
+      line. tests/editor.sh drives it through a real pty
+      (make test-editor; local for now — pty timing on CI is jittery)
+- [ ] H4.2 completion off the readline API (shared logic with
+      complete.c), Ctrl-R incremental history search, bracketed paste
+- [ ] H4.3 the prizes: grey autosuggestions from history (→ accepts),
+      syntax highlighting straight from the real lexer
+- [ ] H4.4 flip the default, drop -lreadline, un-note the LICENSE,
+      update README/man
 
 ## H5 — seaworthiness (v0.10.0, mostly ✅)
 - [x] LICENSE: MIT (source), with the readline/GPL note for binaries

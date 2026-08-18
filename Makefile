@@ -21,6 +21,10 @@ src/%.o: src/%.c src/psh.h
 test: psh
 	sh tests/smoke.sh
 
+# Cockpit keystroke tests: need a pty (script(1)); run locally.
+test-editor: psh
+	sh tests/editor.sh
+
 # AddressSanitizer + LeakSanitizer build: memory errors and leaks
 # surface as loud reports. `make test-asan` runs the whole suite on it.
 psh-asan: $(SRC) src/psh.h
@@ -39,4 +43,4 @@ install: psh
 clean:
 	rm -f psh psh-asan $(OBJ)
 
-.PHONY: test test-asan install clean
+.PHONY: test test-editor test-asan install clean
