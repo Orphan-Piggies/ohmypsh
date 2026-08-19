@@ -87,6 +87,23 @@ void psh_editor_hist_load(const char *path)
     fclose(f);
 }
 
+/* Read-only views plus clear, for the history builtin (builtins.c). */
+size_t psh_editor_hist_count(void)
+{
+    return hist_n;
+}
+
+const char *psh_editor_hist_get(size_t i)
+{
+    return i < hist_n ? hist[i] : NULL;
+}
+
+void psh_editor_hist_clear(void)
+{
+    while (hist_n)
+        free(hist[--hist_n]);
+}
+
 void psh_editor_hist_save(const char *path)
 {
     FILE *f = fopen(path, "w");

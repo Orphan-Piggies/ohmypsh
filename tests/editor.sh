@@ -48,6 +48,7 @@ nosuchcmd-qq\n
 echo "ystr"\n
 sleep 0.3\n
 echo tookms=$PSH_CMD_MS\n
+history 3\n
 exit\n
 EOF
 )
@@ -80,6 +81,7 @@ check "keyword painted bold"          "$(has '\[1mif')"
 check "string painted yellow"         "$(has '\[33m"ystr"')"
 n=$(printf '%s\n' "$out" | grep -aEc '^tookms=(3[0-9][0-9]|[4-9][0-9][0-9]|[0-9]{4,})$')
 check "PSH_CMD_MS measures the sleep"  "$([ "$n" = 1 ] && echo yes)"
+check "history builtin numbers the bag" "$(has '^ *[0-9][0-9]*  history 3$')"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

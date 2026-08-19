@@ -228,6 +228,9 @@ char *psh_editor_readline(const char *prompt); /* malloc'd, no \n; NULL=EOF */
 void psh_editor_hist_load(const char *path);
 void psh_editor_hist_add(const char *line);
 void psh_editor_hist_save(const char *path);
+size_t psh_editor_hist_count(void);
+const char *psh_editor_hist_get(size_t i); /* NULL past the end */
+void psh_editor_hist_clear(void);
 
 /* builtins.c */
 typedef int (*psh_builtin_fn)(char **argv);

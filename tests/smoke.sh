@@ -458,6 +458,20 @@ check "duration stays quiet under the threshold" "quiet=0" "$out"
 
 rm -rf "$tmp"
 
+# ---- history builtin (list lives in the editor; empty non-interactively) ----
+
+out=$(printf 'type history\n' | $PSH)
+check "history is a builtin" "history is a shell builtin" "$out"
+
+out=$(printf 'history\necho empty=$?\n' | $PSH)
+check "history: empty in a script, still succeeds" "empty=0" "$out"
+
+out=$(printf 'history -c\necho cleared=$?\n' | $PSH)
+check "history -c succeeds" "cleared=0" "$out"
+
+printf 'history banana\n' | $PSH 2>/dev/null
+check "history with a non-count is an error (status 2)" "2" "$?"
+
 echo
 if [ "$fails" -eq 0 ]; then
     echo "all smoke tests passed 🫛"

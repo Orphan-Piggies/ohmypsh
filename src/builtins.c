@@ -290,6 +290,37 @@ static int bi_trap(char **argv)
     return 0;
 }
 
+/*
+ * history      — every line the cockpit remembers, numbered like bash
+ * history N    — just the last N
+ * history -c   — forget it all (the file follows suit at exit)
+ *
+ * The list lives in editor.c and is only fed interactively, so in a
+ * script this prints nothing — which is also the honest answer.
+ */
+static int bi_history(char **argv)
+{
+    if (argv[1] && strcmp(argv[1], "-c") == 0) {
+        psh_editor_hist_clear();
+        return 0;
+    }
+    size_t n = psh_editor_hist_count(), first = 0;
+    if (argv[1]) {
+        char *end;
+        long want = strtol(argv[1], &end, 10);
+        if (*end || end == argv[1] || want < 0) {
+            fprintf(stderr, "psh: history: %s: expected a count or -c\n",
+                    argv[1]);
+            return 2;
+        }
+        if ((size_t)want < n)
+            first = n - (size_t)want;
+    }
+    for (size_t i = first; i < n; i++)
+        printf("%5zu  %s\n", i + 1, psh_editor_hist_get(i));
+    return 0;
+}
+
 static int bi_help(char **argv)
 {
     (void)argv;
@@ -326,6 +357,7 @@ static const struct {
     { "return",   bi_return,      "return from a function (return [n])" },
     { "break",    bi_break,       "exit the enclosing loop" },
     { "continue", bi_continue,    "next iteration of the enclosing loop" },
+    { "history",  bi_history,     "the story so far (history [N], -c forgets)" },
     { "help",  bi_help,           "this text" },
     { "crack", psh_builtin_crack, "???" },
 };
