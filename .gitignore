@@ -1,2 +1,3 @@
 psh
 src/*.o
+psh-asan
