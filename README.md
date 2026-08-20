@@ -1,5 +1,7 @@
 # 🫛 psh — the pistachio shell
 
+[![CI](https://github.com/marmeladze/ohmypsh/actions/workflows/ci.yml/badge.svg)](https://github.com/marmeladze/ohmypsh/actions/workflows/ci.yml)
+
 > The pistachio has one of the hardest shells in the world. It deserved
 > a place in the hall of fame next to bash, fish, and zsh. So here it is.
 
