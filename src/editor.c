@@ -346,6 +346,8 @@ struct el {
     size_t hist_ix;    /* == hist_n when editing a fresh line */
     char *saved;       /* the fresh line, stashed while browsing */
     char *sugg;        /* grey autosuggestion tail (H4.3), or NULL */
+    size_t yank_hist;  /* hist entry last yanked by Esc+.; hist_n = none */
+    size_t yank_start; /* where that yank was inserted */
 };
 
 static void el_ensure(struct el *e, size_t extra)
@@ -740,6 +742,47 @@ static void read_paste(struct el *e)
     free(pb);
 }
 
+/* [*start, *end) of the last blank-separated word of s; false if none. */
+static bool last_word(const char *s, size_t *start, size_t *end)
+{
+    size_t n = strlen(s);
+    while (n && (s[n - 1] == ' ' || s[n - 1] == '\t'))
+        n--;
+    if (!n)
+        return false;
+    size_t b = n;
+    while (b && s[b - 1] != ' ' && s[b - 1] != '\t')
+        b--;
+    *start = b;
+    *end = n;
+    return true;
+}
+
+/* Esc+. — insert the previous command's last word; pressing again
+ * replaces it with the one from the next-older command (readline's
+ * yank-last-arg). "Pressing again" is detected by the buffer still
+ * ending the last yank verbatim at the cursor, so any edit or cursor
+ * move in between starts a fresh cycle from the newest entry. */
+static void yank_last_arg(struct el *e)
+{
+    size_t ws, we;
+    bool cycling = e->yank_hist < hist_n && e->pos <= e->len &&
+        last_word(hist[e->yank_hist], &ws, &we) &&
+        e->pos == e->yank_start + (we - ws) &&
+        memcmp(e->buf + e->yank_start, hist[e->yank_hist] + ws, we - ws) == 0;
+
+    size_t ix = cycling ? e->yank_hist : hist_n;
+    while (ix > 0 && !last_word(hist[ix - 1], &ws, &we))
+        ix--;
+    if (ix == 0)
+        return; /* nothing (older) to yank; leave the line alone */
+    if (cycling)
+        el_delete(e, e->yank_start, e->pos);
+    e->yank_start = e->pos;
+    el_insert(e, hist[ix - 1] + ws, we - ws);
+    e->yank_hist = ix - 1;
+}
+
 static void handle_escape(struct el *e)
 {
     if (!pending_input())
@@ -749,6 +792,7 @@ static void handle_escape(struct el *e)
         return;
     if (a == 'b') { word_back(e); return; }
     if (a == 'f') { if (!sugg_accept(e, true)) word_fwd(e); return; }
+    if (a == '.') { yank_last_arg(e); return; }
     if (a != '[' && a != 'O')
         return;
     char b;
@@ -1115,7 +1159,7 @@ char *psh_editor_readline(const char *prompt)
     (void)!write(STDOUT_FILENO, "\033[?2004h", 8); /* bracketed paste */
 
     struct el e = { .prompt = prompt, .cols = term_cols(),
-                    .hist_ix = hist_n };
+                    .hist_ix = hist_n, .yank_hist = hist_n };
     el_ensure(&e, 64);
     e.buf[0] = '\0';
     refresh(&e);
