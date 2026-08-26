@@ -503,6 +503,37 @@ check "in-parent builtin with fd 3 redirect survives" "0" "$?"
 printf 'echo x >&\n' | $PSH 2>/dev/null
 check "dangling >& is a syntax error" "2" "$?"
 
+# ---- H7.2: the exec builtin ----
+
+out=$(printf 'exec 3> %s/fd3\necho first >&3\necho second >&3\nexec 3>&-\ncat %s/fd3\n' "$tmp" "$tmp" | $PSH)
+check "exec 3>f persists across commands, 3>&- closes" "first
+second" "$out"
+
+printf 'exec > %s/exo\necho routed\n' "$tmp" | $PSH
+check "exec >f rewires the shell's stdout for good" "routed" "$(cat "$tmp/exo")"
+
+out=$(printf 'exec echo replaced\necho never-printed\n' | $PSH)
+check "exec CMD becomes the command (script ends)" "replaced" "$out"
+
+out=$(printf 'exec definitely-missing-xirt\necho alive=$?\n' | $PSH 2>/dev/null)
+check "failed exec CMD: shell survives with 127" "alive=127" "$out"
+
+out=$(printf 'exec < /definitely-missing-xirt\necho alive=$?\n' | $PSH 2>/dev/null)
+check "failed exec redirect: shell survives" "alive=1" "$out"
+
+out=$(printf 'echo hi | exec tr h H\n' | $PSH)
+check "exec in a pipeline replaces the child" "Hi" "$out"
+
+out=$(printf 'exec\necho bare=$?\n' | $PSH)
+check "bare exec is a status-0 no-op" "bare=0" "$out"
+
+out=$(printf 'type exec\n' | $PSH)
+check "type knows exec" "exec is a shell builtin" "$out"
+
+# the H7 dress rehearsal: a redis-shaped session against a plain file
+out=$(printf 'exec 3<> %s/wire\necho PING >&3\nexec 3>&-\nexec 4< %s/wire\nhead -n 1 <&4\n' "$tmp" "$tmp" | $PSH)
+check "open 3<>, write >&3, reopen, read <&4 — the wire holds" "PING" "$out"
+
 # a function may redefine ITSELF while running (omp reload does this
 # via source) — the old body must outlive the call, not be freed
 # under the interpreter's feet

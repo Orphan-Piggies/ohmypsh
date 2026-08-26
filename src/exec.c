@@ -436,6 +436,42 @@ static int try_run_in_parent(const psh_command *c)
         return 0;
     }
 
+    /* exec is SPECIAL (POSIX): found before functions, never
+     * forked. Its redirections are applied to the SHELL and stay —
+     * `exec 3<>file` gives every later command fd 3. With a
+     * command, this shell's story ends here: execvp in place (a
+     * file from $PATH only — exec doesn't run builtins). A failed
+     * exec is reported but survived, like interactive bash. */
+    if (strcmp(fargv[0], "exec") == 0) {
+        apply_assignments(c, na, false);
+        int status = 0;
+        if (apply_redirs(c) < 0) {
+            status = 1;
+        } else if (fargv[1]) {
+            /* Ignored dispositions SURVIVE execvp; hand the program
+             * default ones (handlers reset themselves). */
+            signal(SIGQUIT, SIG_DFL);
+            if (psh_job_control) {
+                signal(SIGTSTP, SIG_DFL);
+                signal(SIGTTIN, SIG_DFL);
+                signal(SIGTTOU, SIG_DFL);
+            }
+            execvp(fargv[1], fargv + 1);
+            status = errno == ENOENT ? 127 : 126;
+            fprintf(stderr, "psh: exec: %s: %s\n", fargv[1],
+                    errno == ENOENT ? "command not found"
+                                    : strerror(errno));
+            signal(SIGQUIT, SIG_IGN); /* still a shell after all */
+            if (psh_job_control) {
+                signal(SIGTSTP, SIG_IGN);
+                signal(SIGTTIN, SIG_IGN);
+                signal(SIGTTOU, SIG_IGN);
+            }
+        }
+        free_strv(fargv);
+        return status;
+    }
+
     /* Functions shadow builtins, builtins shadow $PATH — sh's order. */
     psh_stmt *funcbody = func_lookup(fargv[0]);
     psh_builtin_fn fn = funcbody ? NULL : psh_find_builtin(fargv[0]);
@@ -526,12 +562,20 @@ static int run_pipeline(const psh_command *first, bool background)
             if (!fargv[0])
                 _exit(0); /* redirect-only command: `> file` */
 
-            psh_stmt *funcbody = func_lookup(fargv[0]);
-            if (funcbody) /* function in a pipeline: runs right here */
-                _exit(call_function(funcbody, fargv) & 0xff);
-            psh_builtin_fn fn = psh_find_builtin(fargv[0]);
-            if (fn)
-                _exit(fn(fargv) & 0xff);
+            /* `exec cmd` in a pipeline: the child just becomes it —
+             * no function/builtin lookup, files only, like sh. */
+            if (strcmp(fargv[0], "exec") == 0) {
+                if (!fargv[1])
+                    _exit(0); /* its redirs applied above; done */
+                fargv++;
+            } else {
+                psh_stmt *funcbody = func_lookup(fargv[0]);
+                if (funcbody) /* function in a pipeline: runs here */
+                    _exit(call_function(funcbody, fargv) & 0xff);
+                psh_builtin_fn fn = psh_find_builtin(fargv[0]);
+                if (fn)
+                    _exit(fn(fargv) & 0xff);
+            }
 
             execvp(fargv[0], fargv);
             if (errno == ENOENT)

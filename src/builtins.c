@@ -331,12 +331,23 @@ static int bi_help(char **argv)
     return 0;
 }
 
+/* exec is intercepted by the executor BEFORE builtin lookup — its
+ * redirections must rewire the shell itself, and with a command it
+ * execvp's in place. This entry exists for type/help/completion;
+ * the stub is only ever reached as the bare no-op `exec`. */
+static int bi_exec(char **argv)
+{
+    (void)argv;
+    return 0;
+}
+
 static const struct {
     const char *name;
     psh_builtin_fn fn;
     const char *blurb;
 } builtins[] = {
     { "cd",    bi_cd,             "change directory (cd, cd <dir>, cd -)" },
+    { "exec",  bi_exec,           "rewire the shell's fds, or become a command" },
     { "exit",  bi_exit,           "leave the bag (exit [status])" },
     { "pwd",   bi_pwd,            "print working directory" },
     { "jobs",  psh_builtin_jobs,  "list background and stopped jobs" },

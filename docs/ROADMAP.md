@@ -211,9 +211,13 @@ syntax we need anyway. Staged so every rung is useful on its own:
       dup targets expand (`2>&$FD`), `-` closes; in-parent builtin
       save/restore generalized to any fd (parked CLOEXEC above every
       touched fd). The table stake unlocked: `2>&1`.
-- [ ] H7.2 `exec` builtin — POSIX-required anyway; it's the existing
-      in-parent fd save/restore (M2) minus the restore. Persistent
-      fds survive across commands: `exec 3<>file`.
+- [x] H7.2 `exec` builtin — intercepted in the executor (POSIX
+      special: found before functions, never forked): redirections
+      apply to the SHELL and stay (`exec 3<>file` gives every later
+      command fd 3), `exec cmd` execvp's in place after handing the
+      program default signal dispositions. A failed exec is
+      survived, like interactive bash. In a pipeline the child just
+      becomes the command.
 - [ ] H7.3 the dessert: `/dev/tcp/host/port` (and `/dev/udp/...`)
       intercepted in the redirect path — getaddrinfo + socket +
       connect, ~40 lines. connect() stays SIGINT-interruptible so a
