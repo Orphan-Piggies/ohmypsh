@@ -36,8 +36,8 @@ and exit.
 .SH LANGUAGE
 Pipelines
 .RB ( a\ |\ b ),
-redirects
-.RB ( >\ >>\ <\ 2> ),
+redirects with optional fd numbers
+.RB ( >\ >>\ <\ <>\ 2>\ 2>&1\ 2>&\- ),
 lists
 .RB ( &&\ ||\ ; ),
 background jobs

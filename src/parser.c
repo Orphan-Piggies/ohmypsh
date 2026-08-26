@@ -74,9 +74,13 @@ static void cmd_free_chain(psh_command *c)
         for (size_t i = 0; i < c->argc; i++)
             free(c->argv[i]);
         free(c->argv);
-        free(c->in_path);
-        free(c->out_path);
-        free(c->err_path);
+        psh_redir *r = c->redirs;
+        while (r) {
+            psh_redir *rn = r->next;
+            free(r->target);
+            free(r);
+            r = rn;
+        }
         free(c);
         c = next;
     }
@@ -225,6 +229,7 @@ static psh_command *parse_simple(P *p)
         fail(p, "out of memory");
         return NULL;
     }
+    psh_redir *rtail = NULL;
 
     for (;;) {
         if (!p->cur)
@@ -235,43 +240,37 @@ static psh_command *parse_simple(P *p)
                 goto bad;
             }
             advance(p);
-        } else if (p->cur->type == TOK_REDIR_IN ||
-                   p->cur->type == TOK_REDIR_OUT ||
-                   p->cur->type == TOK_REDIR_APPEND ||
-                   p->cur->type == TOK_REDIR_ERR) {
-            psh_token_type rt = p->cur->type;
+        } else if (p->cur->type == TOK_REDIR) {
+            psh_redir_kind kind = p->cur->rd_kind;
+            int fd = p->cur->rd_fd;
             advance(p);
             if (!p->cur || p->cur->type != TOK_WORD) {
-                fail_or_more(p, "expected a filename after redirect");
+                fail_or_more(p, "expected a word after redirect");
                 goto bad;
             }
-            char *path = strdup(p->cur->text);
-            if (!path) {
+            psh_redir *r = calloc(1, sizeof *r);
+            char *target = strdup(p->cur->text);
+            if (!r || !target) {
+                free(r);
+                free(target);
                 fail(p, "out of memory");
                 goto bad;
             }
-            switch (rt) {
-            case TOK_REDIR_IN:
-                free(c->in_path);
-                c->in_path = path;
-                break;
-            case TOK_REDIR_ERR:
-                free(c->err_path);
-                c->err_path = path;
-                break;
-            default:
-                free(c->out_path);
-                c->out_path = path;
-                c->append = (rt == TOK_REDIR_APPEND);
-                break;
-            }
+            r->kind = kind;
+            r->fd = fd;
+            r->target = target;
+            if (rtail)
+                rtail->next = r;
+            else
+                c->redirs = r;
+            rtail = r;
             advance(p);
         } else {
             break;
         }
     }
 
-    if (c->argc == 0 && !c->in_path && !c->out_path && !c->err_path) {
+    if (c->argc == 0 && !c->redirs) {
         fail_or_more(p, "expected a command");
         goto bad;
     }

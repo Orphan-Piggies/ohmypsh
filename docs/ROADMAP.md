@@ -197,3 +197,30 @@ now that we own the whole stack down to the line editor.
       that has good taste delivered three: dirty marker, venv
       auto-activation, XIRT — docs/screenshots/)
 - [ ] Packaging: deb / AUR (when there's a public repo to point at)
+
+## H7 — the wire (opened 2026-08-26)
+The bash /dev/tcp redis trick, earned honestly. Not a redis builtin —
+RESP belongs in redis-cli, not in C that rots. The prize is the
+generic mechanism: sockets as file descriptors, driven by redirection
+syntax we need anyway. Staged so every rung is useful on its own:
+- [x] H7.1 redirections grew up: the per-command in/out/err fields
+      became an ORDERED list of {fd, kind, target} (order IS the
+      semantics: `>f 2>&1` ≠ `2>&1 >f`); lexer learned the POSIX
+      IO_NUMBER rule (`echo 2>f` redirects, `echo 2 >f` echoes) and
+      one TOK_REDIR token for `N<` `N>` `N>>` `N<>` `N<&` `N>&`;
+      dup targets expand (`2>&$FD`), `-` closes; in-parent builtin
+      save/restore generalized to any fd (parked CLOEXEC above every
+      touched fd). The table stake unlocked: `2>&1`.
+- [ ] H7.2 `exec` builtin — POSIX-required anyway; it's the existing
+      in-parent fd save/restore (M2) minus the restore. Persistent
+      fds survive across commands: `exec 3<>file`.
+- [ ] H7.3 the dessert: `/dev/tcp/host/port` (and `/dev/udp/...`)
+      intercepted in the redirect path — getaddrinfo + socket +
+      connect, ~40 lines. connect() stays SIGINT-interruptible so a
+      dead host can't brick the prompt.
+- [ ] H7.4 `read` builtin is born (`read -r var`, `read var <&N`) —
+      overdue on its own. One-byte reads on non-seekable fds, so
+      `read -r line <&3` is the safe way to talk to a socket
+      (`head` gulps 8K buffers and eats replies — works in demos,
+      loses data daily). Redis via exec 3<>/dev/tcp/127.0.0.1/6379
+      becomes a party trick that actually holds.

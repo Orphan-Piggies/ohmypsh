@@ -456,6 +456,61 @@ check "duration formats minutes" "1m23s" "$out"
 out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=duration\nsource $OMP_DIR/omp.psh\nPSH_CMD_MS=900\n__omp_duration_prompt\necho quiet=$?\n' "$OMPD" | $PSH)
 check "duration stays quiet under the threshold" "quiet=0" "$out"
 
+# ---- H7.1: numbered fds, dup/close, <>, and ordering ----
+
+out=$(printf 'ls /definitely-missing-xirt 2>&1 | grep -c xirt\n' | $PSH)
+check "2>&1 folds stderr into the pipe" "1" "$out"
+
+printf 'ls /definitely-missing-xirt > %s/both 2>&1\n' "$tmp" | $PSH
+out=$(grep -c xirt "$tmp/both")
+check ">f 2>&1 lands stderr in the file" "1" "$out"
+
+# swapped order: 2 dups the OLD stdout, then 1 moves to the file —
+# so the error stays on the script's stdout and the file gets nothing
+out=$(printf 'ls /definitely-missing-xirt 2>&1 > %s/oo\n' "$tmp" | $PSH 2>/dev/null | grep -c xirt)
+check "2>&1 >f applies in source order" "1" "$out"
+check "2>&1 >f leaves the file empty" "0" "$(wc -c < "$tmp/oo" | tr -d ' ')"
+
+printf 'echo oops >&2\n' | $PSH 2>"$tmp/e" >"$tmp/o"
+check "builtin echo >&2 reaches stderr" "oops" "$(cat "$tmp/e")"
+check "builtin echo >&2 skips stdout" "0" "$(wc -c < "$tmp/o" | tr -d ' ')"
+
+out=$(printf 'ls /definitely-missing-xirt 2>&-\necho done\n' | $PSH 2>/dev/null)
+check "2>&- closes stderr, shell survives" "done" "$out"
+
+printf 'ls /nope-a 2>> %s/e2\nls /nope-b 2>> %s/e2\n' "$tmp" "$tmp" | $PSH
+check "numbered append 2>> accumulates" "2" "$(grep -c nope "$tmp/e2")"
+
+printf 'echo salam 1<> %s/rw\n' "$tmp" | $PSH
+check "read-write <> creates and writes" "salam" "$(cat "$tmp/rw")"
+
+out=$(printf 'echo 2 > %s/two\ncat %s/two\n' "$tmp" "$tmp" | $PSH)
+check "unglued digit stays an argument (IO_NUMBER)" "2" "$out"
+
+printf 'echo glued 2> %s/eg\n' "$tmp" | $PSH > "$tmp/go"
+check "glued 2> redirects fd 2, stdout unharmed" "glued" "$(cat "$tmp/go")"
+check "glued 2> leaves the file empty" "0" "$(wc -c < "$tmp/eg" | tr -d ' ')"
+
+out=$(printf 'FD=1\nls /definitely-missing-xirt 2>&$FD\n' | $PSH 2>/dev/null | grep -c xirt)
+check "dup target can be a variable (2>&\$FD)" "1" "$out"
+
+printf 'echo hi >&7\n' | $PSH 2>/dev/null
+check "dup of a never-opened fd fails" "1" "$?"
+
+printf 'pwd 3> %s/fd3\necho after=$?\n' "$tmp" | $PSH > /dev/null
+check "in-parent builtin with fd 3 redirect survives" "0" "$?"
+
+printf 'echo x >&\n' | $PSH 2>/dev/null
+check "dangling >& is a syntax error" "2" "$?"
+
+# a function may redefine ITSELF while running (omp reload does this
+# via source) — the old body must outlive the call, not be freed
+# under the interpreter's feet
+printf 'f() { f() { echo new; }\necho old\n}\nf\nf\necho fine=$?\n' | $PSH > "$tmp/redef" 2>/dev/null
+check "self-redefining function survives" "old
+new
+fine=0" "$(cat "$tmp/redef")"
+
 rm -rf "$tmp"
 
 # ---- history builtin (list lives in the editor; empty non-interactively) ----

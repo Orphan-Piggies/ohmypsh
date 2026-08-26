@@ -21,6 +21,7 @@ N=${1:-600}
 
 VOCAB=(if then else elif fi while do done for in case esac
        '{' '}' '(' ')' '|' '||' '&&' ';' ';;' '&' '>' '>>' '<' '2>'
+       '<>' '>&' '<&' '2>&1' '2>&-' '3>' '10>>' '0<&' '>&2'
        '"' "'" '$' '$(' ')' '$((' '))' '${' '}' '#' '!' '[' ']'
        echo true false : X=1 '$X' '$@' '$?' '$#' -f -n = != local
        export unset return break continue f\(\) test)

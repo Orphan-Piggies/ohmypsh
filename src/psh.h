@@ -90,11 +90,19 @@ typedef enum {
     TOK_NEWLINE,      /* \n — a separator, except after | && || */
     TOK_LPAREN,       /* (  — only meaningful in name() definitions */
     TOK_RPAREN,       /* )  */
-    TOK_REDIR_IN,     /* <  */
-    TOK_REDIR_OUT,    /* >  */
-    TOK_REDIR_APPEND, /* >> */
-    TOK_REDIR_ERR,    /* 2> */
+    TOK_REDIR,        /* [n]< [n]> [n]>> [n]<> [n]<& [n]>& */
 } psh_token_type;
+
+/* How a redirection opens (or rewires) its fd. The dup kinds take a
+ * NUMBER (or '-' to close) where the others take a filename. */
+typedef enum {
+    RD_IN,     /* [n]<  file — default fd 0 */
+    RD_OUT,    /* [n]>  file — default fd 1 */
+    RD_APPEND, /* [n]>> file — default fd 1 */
+    RD_RDWR,   /* [n]<> file — default fd 0 */
+    RD_DUPIN,  /* [n]<& m|-  — default fd 0 */
+    RD_DUPOUT, /* [n]>& m|-  — default fd 1 */
+} psh_redir_kind;
 
 typedef struct psh_token {
     psh_token_type type;
@@ -102,6 +110,10 @@ typedef struct psh_token {
     int line;   /* 1-based line the token starts on (for errors) */
     size_t pos; /* byte offset of the token's start in the input —
                    how the cockpit's syntax highlighting finds it */
+    psh_redir_kind rd_kind; /* TOK_REDIR only */
+    int rd_fd;              /* TOK_REDIR only: fd, default resolved */
+    size_t srclen;          /* TOK_REDIR only: bytes in the source
+                               (an IO number stretches the token) */
     struct psh_token *next;
 } psh_token;
 
@@ -113,14 +125,22 @@ void psh_tokens_free(psh_token *t);
 
 /* ---------------- syntax tree (parser.c) ---------------- */
 
+/* One redirection: fd, kind, and a raw target word (filename, or a
+ * digit-string / '-' for the dup kinds — expanded at execution time,
+ * so `> $LOG` and `2>&$FD` both work). Kept as an ORDERED list:
+ * `>f 2>&1` and `2>&1 >f` differ exactly by application order. */
+typedef struct psh_redir {
+    psh_redir_kind kind;
+    int fd;
+    char *target;
+    struct psh_redir *next;
+} psh_redir;
+
 /* One simple command: argv (raw words) + redirects. */
 typedef struct psh_command {
     char **argv;
     size_t argc;
-    char *in_path;  /* <  */
-    char *out_path; /* > or >> */
-    char *err_path; /* 2> */
-    bool append;
+    psh_redir *redirs;        /* applied in source order */
     struct psh_command *next; /* next stage of the pipeline */
 } psh_command;
 

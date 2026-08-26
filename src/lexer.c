@@ -1,7 +1,9 @@
 /*
  * lexer.c — turn input text into a stream of tokens.
  *
- * Token kinds:  words,  |  ||  &&  &  ;  newline  ( )  <  >  >>  2>
+ * Token kinds:  words,  |  ||  &&  &  ;  newline  ( )  and the
+ * redirections [n]< [n]> [n]>> [n]<> [n]<& [n]>& (one TOK_REDIR
+ * carrying kind + fd; the optional glued IO number picks the fd)
  *
  * Words are kept RAW — quotes and $(...) stay inside the token text;
  * expand.c finishes them at execution time. The lexer's quoting
@@ -36,6 +38,9 @@ static psh_token *tok_append(psh_token **head, psh_token **tail,
     t->text = text; /* takes ownership */
     t->line = line;
     t->pos = pos;
+    t->rd_kind = RD_IN;
+    t->rd_fd = 0;
+    t->srclen = 0;
     t->next = NULL;
     if (*tail)
         (*tail)->next = t;
@@ -118,6 +123,46 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
 
         size_t tok_start = (size_t)(p - line);
 
+        /* Redirections, with an optional IO number: [n]< [n]> [n]>>
+         * [n]<> [n]<& [n]>&. Digits count as the fd only when GLUED
+         * to the operator at the start of a token — `echo 2>f`
+         * redirects fd 2, `echo 2 >f` echoes "2" (POSIX IO_NUMBER),
+         * and `echo a2>f` is the word "a2" plus a stdout redirect. */
+        {
+            const char *q = p;
+            while (isdigit((unsigned char)*q))
+                q++;
+            if (*q == '<' || *q == '>') {
+                psh_redir_kind kind;
+                size_t oplen;
+                if (*q == '<' && q[1] == '>') { kind = RD_RDWR; oplen = 2; }
+                else if (*q == '<' && q[1] == '&') { kind = RD_DUPIN; oplen = 2; }
+                else if (*q == '<') { kind = RD_IN; oplen = 1; }
+                else if (q[1] == '>') { kind = RD_APPEND; oplen = 2; }
+                else if (q[1] == '&') { kind = RD_DUPOUT; oplen = 2; }
+                else { kind = RD_OUT; oplen = 1; }
+
+                int fd;
+                if (q > p) {
+                    long v = strtol(p, NULL, 10);
+                    fd = v > 1000000 ? 1000000 : (int)v; /* dup2 will complain */
+                } else {
+                    fd = (kind == RD_IN || kind == RD_RDWR ||
+                          kind == RD_DUPIN) ? 0 : 1;
+                }
+
+                psh_token *t = tok_append(&head, &tail, TOK_REDIR, NULL,
+                                          lineno, tok_start);
+                if (!t)
+                    goto oom;
+                t->rd_kind = kind;
+                t->rd_fd = fd;
+                t->srclen = (size_t)(q - p) + oplen;
+                p = q + oplen;
+                continue;
+            }
+        }
+
         int op = -1;
         if (*p == '&' && p[1] == '&') { op = TOK_AND; p += 2; }
         else if (*p == '|' && p[1] == '|') { op = TOK_OR; p += 2; }
@@ -127,10 +172,6 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
         else if (*p == ';') { op = TOK_SEMI; p += 1; }
         else if (*p == '(') { op = TOK_LPAREN; p += 1; }
         else if (*p == ')') { op = TOK_RPAREN; p += 1; }
-        else if (*p == '<') { op = TOK_REDIR_IN; p += 1; }
-        else if (*p == '>' && p[1] == '>') { op = TOK_REDIR_APPEND; p += 2; }
-        else if (*p == '>') { op = TOK_REDIR_OUT; p += 1; }
-        else if (*p == '2' && p[1] == '>') { op = TOK_REDIR_ERR; p += 2; }
 
         if (op >= 0) {
             if (!tok_append(&head, &tail, (psh_token_type)op, NULL,

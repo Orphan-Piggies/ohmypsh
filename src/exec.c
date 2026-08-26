@@ -49,6 +49,30 @@ typedef struct fentry {
 
 static fentry *functions;
 
+/* Redefining a function that is CURRENTLY EXECUTING must not free
+ * its body — the interpreter is still walking it (`omp reload`
+ * sources omp.psh, which redefines `omp` while `omp` runs). Old
+ * bodies are parked here while any function call is on the stack
+ * and swept once the stack is empty again. */
+typedef struct zombie {
+    psh_stmt *body;
+    struct zombie *next;
+} zombie;
+static zombie *graveyard;
+static int func_depth;
+
+static void graveyard_sweep(void)
+{
+    if (func_depth)
+        return;
+    while (graveyard) {
+        zombie *z = graveyard;
+        graveyard = z->next;
+        psh_stmts_free(z->body);
+        free(z);
+    }
+}
+
 static psh_stmt *func_lookup(const char *name)
 {
     for (fentry *f = functions; f; f = f->next)
@@ -66,7 +90,16 @@ static void func_define(const char *name, psh_stmt *body)
 {
     for (fentry *f = functions; f; f = f->next) {
         if (strcmp(f->name, name) == 0) {
-            psh_stmts_free(f->body); /* redefinition replaces */
+            /* Redefinition replaces — but the old body may be the
+             * very code we're executing right now. Park it. */
+            zombie *z = func_depth ? malloc(sizeof *z) : NULL;
+            if (z) {
+                z->body = f->body;
+                z->next = graveyard;
+                graveyard = z;
+            } else if (!func_depth) {
+                psh_stmts_free(f->body);
+            } /* malloc failed mid-call: leak beats a crash */
             f->body = body;
             return;
         }
@@ -96,11 +129,14 @@ static int call_function(psh_stmt *body, char **argv)
     psh_script_args = argv + 1;
     psh_script_argc = n ? n - 1 : 0;
     psh_vars_push_scope(); /* a home for this call's `local`s */
+    func_depth++;
 
     int status = run_stmts(body);
     if (psh_flow == PSH_FLOW_RETURN)
         psh_flow = PSH_FLOW_NONE;
 
+    func_depth--;
+    graveyard_sweep(); /* bodies our redefinitions orphaned */
     psh_vars_pop_scope(); /* locals die; shadowed environ restored */
     psh_script_args = saved_args;
     psh_script_argc = saved_argc;
@@ -243,44 +279,74 @@ static char *andor_to_string(const psh_andor *list)
 }
 
 /*
- * Splice this command's redirect files onto fd 0/1/2. Paths are
- * expanded here (so `> $LOG` and `< ~/notes` work) but never globbed.
+ * Apply one command's redirections, IN SOURCE ORDER — the order is
+ * the semantics: `>f 2>&1` first points 1 at f, then points 2 at
+ * what 1 now is; swapped, 2 goes to the OLD stdout. Targets are
+ * expanded here (so `> $LOG`, `2>&$FD` work) but never globbed.
  * Explicit redirects run AFTER pipe wiring, so `a | b > f` sends b's
  * output to f — like sh.
  */
-static int apply_one_redir(const char *raw_path, int flags, int target_fd)
+static int apply_one_redir(const psh_redir *r)
 {
-    char *path = psh_expand_word_single(raw_path);
-    if (!path) {
+    char *word = psh_expand_word_single(r->target);
+    if (!word) {
         fprintf(stderr, "psh: out of memory\n");
         return -1;
     }
-    int fd = open(path, flags, 0644);
+
+    if (r->kind == RD_DUPIN || r->kind == RD_DUPOUT) {
+        /* [n]>&m duplicates, [n]>&- closes. */
+        if (strcmp(word, "-") == 0) {
+            close(r->fd);
+            free(word);
+            return 0;
+        }
+        char *end;
+        long m = strtol(word, &end, 10);
+        if (end == word || *end || m < 0 || m > 1000000) {
+            fprintf(stderr, "psh: %s: bad file descriptor\n", word);
+            free(word);
+            return -1;
+        }
+        free(word);
+        if ((int)m != r->fd && dup2((int)m, r->fd) < 0) {
+            fprintf(stderr, "psh: %ld: %s\n", m, strerror(errno));
+            return -1;
+        }
+        return 0;
+    }
+
+    int flags = 0;
+    switch (r->kind) {
+    case RD_IN:     flags = O_RDONLY; break;
+    case RD_OUT:    flags = O_WRONLY | O_CREAT | O_TRUNC; break;
+    case RD_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
+    case RD_RDWR:   flags = O_RDWR | O_CREAT; break;
+    default: break; /* dup kinds handled above */
+    }
+    int fd = open(word, flags, 0644);
     if (fd < 0) {
-        fprintf(stderr, "psh: %s: %s\n", path, strerror(errno));
-        free(path);
+        fprintf(stderr, "psh: %s: %s\n", word, strerror(errno));
+        free(word);
         return -1;
     }
-    free(path);
-    dup2(fd, target_fd);
-    close(fd);
+    free(word);
+    if (fd != r->fd) {
+        if (dup2(fd, r->fd) < 0) {
+            fprintf(stderr, "psh: %d: %s\n", r->fd, strerror(errno));
+            close(fd);
+            return -1;
+        }
+        close(fd);
+    }
     return 0;
 }
 
 static int apply_redirs(const psh_command *c)
 {
-    if (c->in_path &&
-        apply_one_redir(c->in_path, O_RDONLY, STDIN_FILENO) < 0)
-        return -1;
-    if (c->out_path) {
-        int flags = O_WRONLY | O_CREAT | (c->append ? O_APPEND : O_TRUNC);
-        if (apply_one_redir(c->out_path, flags, STDOUT_FILENO) < 0)
+    for (const psh_redir *r = c->redirs; r; r = r->next)
+        if (apply_one_redir(r) < 0)
             return -1;
-    }
-    if (c->err_path &&
-        apply_one_redir(c->err_path, O_WRONLY | O_CREAT | O_TRUNC,
-                        STDERR_FILENO) < 0)
-        return -1;
     return 0;
 }
 
@@ -289,17 +355,40 @@ static int apply_redirs(const psh_command *c)
  * (that's what makes it able to cd, set flow flags, define things) —
  * so to honor `pwd > file` we temporarily rewire the SHELL'S own fds
  * and put them back afterwards. Exactly one of fn/funcbody is set.
+ *
+ * Every fd a redirection touches is parked as a CLOEXEC copy at
+ * 10+ first (out of the low userland range, bash's trick). A save
+ * that fails with EBADF means the fd was CLOSED before — restoring
+ * it means closing it again. Saves run in source order and restores
+ * in reverse, so `>a >b` (fd 1 touched twice) unwinds correctly.
  */
 static int run_builtin_in_parent(psh_builtin_fn fn, psh_stmt *funcbody,
                                  const psh_command *c, char **fargv)
 {
-    int saved[3] = { -1, -1, -1 };
-    if (c->in_path)
-        saved[0] = dup(STDIN_FILENO);
-    if (c->out_path)
-        saved[1] = dup(STDOUT_FILENO);
-    if (c->err_path)
-        saved[2] = dup(STDERR_FILENO);
+    size_t nredir = 0;
+    for (const psh_redir *r = c->redirs; r; r = r->next)
+        nredir++;
+
+    typedef struct { int fd; int saved; } fdsave;
+    fdsave *saves = NULL;
+    if (nredir) {
+        saves = malloc(nredir * sizeof *saves);
+        if (!saves) {
+            fprintf(stderr, "psh: out of memory\n");
+            return 1;
+        }
+        /* Park above every fd the redirs touch, so a copy can never
+         * land on a number a later redirection is about to rewire. */
+        int floor = 10;
+        for (const psh_redir *r = c->redirs; r; r = r->next)
+            if (r->fd >= floor)
+                floor = r->fd + 1;
+        size_t i = 0;
+        for (const psh_redir *r = c->redirs; r; r = r->next, i++) {
+            saves[i].fd = r->fd;
+            saves[i].saved = fcntl(r->fd, F_DUPFD_CLOEXEC, floor);
+        }
+    }
 
     int status;
     if (apply_redirs(c) < 0)
@@ -310,12 +399,15 @@ static int run_builtin_in_parent(psh_builtin_fn fn, psh_stmt *funcbody,
     /* Flush BEFORE restoring, or buffered output lands on the old fd. */
     fflush(stdout);
     fflush(stderr);
-    for (int i = 0; i < 3; i++) {
-        if (saved[i] >= 0) {
-            dup2(saved[i], i);
-            close(saved[i]);
+    for (size_t i = nredir; i-- > 0;) {
+        if (saves[i].saved >= 0) {
+            dup2(saves[i].saved, saves[i].fd);
+            close(saves[i].saved);
+        } else {
+            close(saves[i].fd);
         }
     }
+    free(saves);
     return status;
 }
 
@@ -328,8 +420,7 @@ static int try_run_in_parent(const psh_command *c)
     size_t na = count_leading_assignments(c);
 
     /* Pure assignment(s), no command, no redirects: set and done. */
-    if (na == c->argc && c->argc > 0 && !c->in_path && !c->out_path &&
-        !c->err_path) {
+    if (na == c->argc && c->argc > 0 && !c->redirs) {
         apply_assignments(c, na, false);
         return 0;
     }

@@ -455,8 +455,8 @@ static size_t tok_srclen(const psh_token *t)
 {
     switch (t->type) {
     case TOK_WORD: return strlen(t->text);
-    case TOK_AND: case TOK_OR: case TOK_DSEMI:
-    case TOK_REDIR_APPEND: case TOK_REDIR_ERR: return 2;
+    case TOK_REDIR: return t->srclen; /* IO number + operator */
+    case TOK_AND: case TOK_OR: case TOK_DSEMI: return 2;
     default: return 1;
     }
 }
