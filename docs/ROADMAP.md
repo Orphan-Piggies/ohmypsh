@@ -256,8 +256,20 @@ shell but stand alone (tools/, built and installed with psh).
       template/raw strings, fences) so joining a stream mid-file
       can miscolor one line, never the session. Tested by
       round-trip: strip the ANSI, cmp against the source.
+- [x] H8.2 🔥 roast — salt's opposite number: a Markdown RENDERER
+      (salt keeps bytes; roast exists to change them). Headings
+      lose #s and gain underlines, - [ ]/- [x] become ☐/☑, bullets
+      become • ◦ ▪ by depth, emphasis markers vanish into real
+      bold/italic, quotes grow a ┃ bar, hrs span the terminal,
+      tables buffer just long enough to align into ruled columns,
+      links become OSC 8 hyperlinks (-u prints urls), and fences
+      vanish while their code keeps salt's highlighting — the
+      engine moved to tools/hl.h, shared header-only. Known
+      trims: alignment markers parsed but left-aligned, no setext
+      headings, wide glyphs drift table padding.
 - [ ] candidates: a pager that understands salt? psh completion
       for salt's -l? an omp plugin aliasing cat when interactive?
+      salt/roast: honor NO_COLOR? roast --toc?
 
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
 it runs verbatim — and the payoff shipped the same day:

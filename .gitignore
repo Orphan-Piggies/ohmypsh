@@ -3,3 +3,5 @@ src/*.o
 psh-asan
 salt
 salt-asan
+roast
+roast-asan

@@ -12,7 +12,7 @@ LDLIBS  :=  # zero dependencies since H4.4 — libc is the whole ship
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 
-all: psh salt
+all: psh salt roast
 
 psh: $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDLIBS)
@@ -20,13 +20,17 @@ psh: $(OBJ)
 src/%.o: src/%.c src/psh.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# salt — the armory's cat: colors, never changed bytes (tools/salt.c)
-salt: tools/salt.c
+# the armory: salt colors bytes, roast renders Markdown (tools/)
+salt: tools/salt.c tools/hl.h
 	$(CC) $(CFLAGS) -o $@ tools/salt.c $(LDLIBS)
 
-test: psh salt
+roast: tools/roast.c tools/hl.h
+	$(CC) $(CFLAGS) -o $@ tools/roast.c $(LDLIBS)
+
+test: psh salt roast
 	sh tests/smoke.sh
 	sh tests/salt.sh
+	sh tests/roast.sh
 
 # Cockpit keystroke tests: need a pty (script(1)); run locally.
 test-editor: psh
@@ -37,23 +41,29 @@ test-editor: psh
 psh-asan: $(SRC) src/psh.h
 	$(CC) $(CFLAGS) -fsanitize=address,leak -o $@ $(SRC) $(LDLIBS)
 
-salt-asan: tools/salt.c
+salt-asan: tools/salt.c tools/hl.h
 	$(CC) $(CFLAGS) -fsanitize=address,leak -o $@ tools/salt.c $(LDLIBS)
 
-test-asan: psh-asan salt-asan
+roast-asan: tools/roast.c tools/hl.h
+	$(CC) $(CFLAGS) -fsanitize=address,leak -o $@ tools/roast.c $(LDLIBS)
+
+test-asan: psh-asan salt-asan roast-asan
 	PSH=./psh-asan sh tests/smoke.sh
 	SALT=./salt-asan sh tests/salt.sh
+	ROAST=./roast-asan sh tests/roast.sh
 
 PREFIX ?= /usr/local
 
-install: psh salt
+install: psh salt roast
 	install -m 755 psh $(PREFIX)/bin/psh
 	install -m 755 salt $(PREFIX)/bin/salt
+	install -m 755 roast $(PREFIX)/bin/roast
 	install -d $(PREFIX)/share/man/man1
 	install -m 644 docs/psh.1 $(PREFIX)/share/man/man1/psh.1
 	install -m 644 docs/salt.1 $(PREFIX)/share/man/man1/salt.1
+	install -m 644 docs/roast.1 $(PREFIX)/share/man/man1/roast.1
 
 clean:
-	rm -f psh psh-asan salt salt-asan $(OBJ)
+	rm -f psh psh-asan salt salt-asan roast roast-asan $(OBJ)
 
 .PHONY: all test test-editor test-asan install clean

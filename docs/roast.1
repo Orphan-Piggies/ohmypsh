@@ -1,0 +1,56 @@
+.TH ROAST 1 "2026" "roast" "User Commands"
+.SH NAME
+roast \- render Markdown for reading
+.SH SYNOPSIS
+.B roast
+.RB [ \-u ]
+.RB [ \-c | \-p ]
+.RB [ \-w
+.IR N ]
+.RI [ FILE ...]
+.SH DESCRIPTION
+.B roast
+turns Markdown source into a terminal document. Where
+.BR salt (1)
+never changes a byte, roast exists to change them: headings lose
+their #s and gain bold green (the top two levels underlined), task
+items become \[u2610] and \[u2611], bullets become \[u2022] (\[u25E6] and \[u25AA] as they
+nest), emphasis markers vanish into real bold and italics, inline
+code drops its backticks, blockquotes grow a \[u2503] bar, horizontal
+rules span the terminal, tables align into ruled columns, and
+fenced code blocks lose their fences but keep syntax highlighting
+in the fence's language \- the same engine salt uses.
+.PP
+Links become OSC 8 terminal hyperlinks (clickable where supported);
+.B \-u
+prints the url after the link text instead. Input is processed a
+line at a time \- only tables buffer, since they need their widths \-
+so
+.B tail \-f NOTES.md | roast
+stays live.
+.SH OPTIONS
+.TP
+.B \-u
+Print urls after link text.
+.TP
+.B \-c
+Color even when piped (for
+.BR "less \-R" ).
+.TP
+.B \-p
+No color. Glyph transforms still apply \- that is the point.
+.TP
+.BI \-w " N"
+Width for horizontal rules (default: the terminal's).
+.SH EXIT STATUS
+0 on success, 1 for unreadable or binary files, 2 for usage errors.
+.SH BUGS
+Table column alignment markers (:---:) are parsed but everything is
+left-aligned. Double-width characters drift table padding slightly.
+Setext (underlined) headings are not recognized.
+.SH SEE ALSO
+.BR salt (1),
+.BR psh (1)
+.SH LORE
+You salt a pistachio to keep it what it is; you roast it to turn it
+into something better. Part of the psh armory. \[u1F331]

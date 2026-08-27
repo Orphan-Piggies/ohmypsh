@@ -95,6 +95,25 @@ Languages: C, sh/psh, Python, Markdown, JSON, diff, YAML, TOML,
 JS/TS, Go, Rust, Ruby, Elixir. `-n` for line numbers (opt-in — they
 do land in copies), `-L` lists the arsenal.
 
+## 🔥 roast
+
+The armory's Markdown renderer — salt's opposite number. You salt a
+pistachio to keep it what it is; you roast it to turn it into
+something better. Headings lose their `#`s and gain underlines,
+`- [ ]`/`- [x]` become ☐/☑, bullets become • ◦ ▪, emphasis markers
+vanish into real bold and italics, quotes grow a ┃ bar, tables
+align into ruled columns, links become clickable OSC 8 hyperlinks,
+and fenced code keeps salt's highlighting while the fences
+themselves disappear. Still line-streamed (only tables buffer), so
+`tail -f NOTES.md | roast` stays live.
+
+```sh
+roast README.md          # this file, as a document
+roast docs/ROADMAP.md    # checkboxes look like checkboxes
+```
+
+Reading is roast's job; copying source is salt's.
+
 ## Build & run
 
 ```sh
@@ -124,6 +143,8 @@ src/complete.c   completion candidates (commands + files)
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
 tools/salt.c     🧂 salt: cat with colors, faithful to the bytes
+tools/roast.c    🔥 roast: Markdown rendered for reading
+tools/hl.h       the shared highlight engine both of them use
 omp/             oh-my-psh: themes/, plugins/, install.psh — in psh
 docs/ROADMAP.md  where this is going
 extras/lore/     the sacred founding documents (oh-my-pistachio era)
