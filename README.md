@@ -37,6 +37,14 @@ Two founding rules, both real: a `$VAR` NEVER word-splits
 splits on newlines only (`for f in $(ls)` iterates lines, spaces in
 filenames survive).
 
+Prefer watching to reading? The
+[**psh Flow Theater**](https://claude.ai/code/artifact/abbdfe69-bbd9-4b4f-bb12-4f4770f01f40)
+plays the shell's internals as six animated scenes — a keystroke
+becoming a fork, three pipeline children running at once, the fd
+park-and-unwind, a PING traveling down `/dev/tcp` to redis and
+back, Ctrl-Z's journey, and the `*incomplete` flag turning an
+unfinished `if` into a `  > ` prompt.
+
 ## 🫛 oh-my-psh
 
 The framework this project was named for — written in psh, running
