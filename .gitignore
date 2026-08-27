@@ -1,3 +1,5 @@
 psh
 src/*.o
 psh-asan
+salt
+salt-asan

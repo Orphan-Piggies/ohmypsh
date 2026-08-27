@@ -1,0 +1,49 @@
+.TH SALT 1 "2026" "salt" "User Commands"
+.SH NAME
+salt \- cat with colors, faithful to the bytes
+.SH SYNOPSIS
+.B salt
+.RB [ \-n ]
+.RB [ \-c | \-p ]
+.RB [ \-l
+.IR LANG ]
+.RI [ FILE ...]
+.SH DESCRIPTION
+.B salt
+prints files like cat and colors them like bat, under one rule: the
+bytes are never changed, only colored. Selecting and copying salted
+output yields the exact source \- no line-number gutters, no frames.
+When stdout is not a terminal the output is byte-identical to the
+input, so salt is always safe in a pipeline.
+.PP
+Input is processed one line at a time, so
+.B tail \-f log | salt \-l yaml
+highlights live. Markdown gets rendered emphasis, headers, lists and
+links, with fenced code blocks highlighted in their own language \-
+while remaining valid Markdown on the clipboard.
+.SH OPTIONS
+.TP
+.B \-n
+Line numbers (opt-in; they do end up in copies).
+.TP
+.B \-c
+Color even when piped (for
+.BR "less \-R" ).
+.TP
+.B \-p
+Never color.
+.TP
+.BI \-l " LANG"
+Force the language (name or extension); otherwise detection uses the
+file extension, well-known basenames, then the shebang.
+.TP
+.B \-L
+List languages: c, sh/psh, python, markdown, json, diff, yaml, toml,
+javascript/typescript, go, rust, ruby, elixir.
+.SH EXIT STATUS
+0 on success, 1 for unreadable or binary files, 2 for usage errors.
+.SH SEE ALSO
+.BR psh (1),
+.BR cat (1)
+.SH LORE
+You salt a pistachio; salt colors a file. Part of the psh armory. 🫛

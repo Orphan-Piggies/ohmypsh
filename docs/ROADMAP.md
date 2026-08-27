@@ -241,6 +241,24 @@ syntax we need anyway. Staged so every rung is useful on its own:
       +PONG compares CLEAN, and a burst of two commands reads back
       as two exact replies.
 
+## H8 — the armory (opened 2026-08-27)
+Weapons for the pistachio: standalone tools that ship with the
+shell but stand alone (tools/, built and installed with psh).
+- [x] H8.1 🧂 salt — cat with colors, faithful to the bytes. The
+      founding rule fixes everything bat gets wrong for daily use:
+      output bytes ARE the input bytes (copy-safe, no gutters),
+      plain passthrough when piped onward (`salt f | wc -c` is
+      honest), a line-at-a-time state machine so `tail -f | salt
+      -l yaml` streams live, and Markdown that reads like a
+      document — fences highlighted in their own language, still
+      valid Markdown on the clipboard. 13 languages; only truly
+      multi-line constructs carry state (block comments, triples,
+      template/raw strings, fences) so joining a stream mid-file
+      can miscolor one line, never the session. Tested by
+      round-trip: strip the ANSI, cmp against the source.
+- [ ] candidates: a pager that understands salt? psh completion
+      for salt's -l? an omp plugin aliasing cat when interactive?
+
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
 it runs verbatim — and the payoff shipped the same day:
 omp/plugins/redis.psh, a real client in ~120 lines of pure psh

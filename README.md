@@ -74,10 +74,31 @@ and shell-shock keeping morale up after a typo:
 
 ![a typo gets a flavor line, XIRT!, and a red 127 status segment](docs/screenshots/xirt.png)
 
+## 🧂 salt
+
+The armory's cat. Prints files like cat, colors them like bat, under
+one rule: **the bytes are never changed, only colored.** Copying
+salted output yields exact source (no gutters, no frames); piped
+output is byte-identical to the input; `tail -f log | salt -l yaml`
+highlights live, line by line. Markdown renders headers, emphasis
+and links, and fenced code blocks are highlighted in their own
+language — while staying valid Markdown on the clipboard.
+
+```sh
+salt file.c              # colors, and only colors
+salt README.md           # markdown worth reading
+tail -f app.log | salt -l yaml    # streams
+salt -c big.py | less -R          # pages
+```
+
+Languages: C, sh/psh, Python, Markdown, JSON, diff, YAML, TOML,
+JS/TS, Go, Rust, Ruby, Elixir. `-n` for line numbers (opt-in — they
+do land in copies), `-L` lists the arsenal.
+
 ## Build & run
 
 ```sh
-make        # builds ./psh
+make        # builds ./psh and ./salt
 make test   # runs the smoke tests
 ./psh       # step into the bag
 ```
@@ -102,6 +123,7 @@ src/editor.c     the cockpit: autosuggestions, syntax highlighting,
 src/complete.c   completion candidates (commands + files)
 src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
+tools/salt.c     🧂 salt: cat with colors, faithful to the bytes
 omp/             oh-my-psh: themes/, plugins/, install.psh — in psh
 docs/ROADMAP.md  where this is going
 extras/lore/     the sacred founding documents (oh-my-pistachio era)
