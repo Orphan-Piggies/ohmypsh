@@ -199,9 +199,13 @@ static bool is_name(const char *s)
 }
 
 /* Function NAMES are laxer than variable names: hyphens welcome
- * (venv-init, docker-clean), as in bash and zsh. */
+ * (venv-init, docker-clean), as in bash and zsh — and `??` by
+ * special dispensation, so the oracle plugin can exist (H10.2).
+ * The executor finds such names RAW, before glob can touch them. */
 static bool is_funcname(const char *s)
 {
+    if (strcmp(s, "??") == 0)
+        return true;
     if (!isalpha((unsigned char)s[0]) && s[0] != '_')
         return false;
     for (size_t i = 1; s[i]; i++)

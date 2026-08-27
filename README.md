@@ -70,7 +70,10 @@ and a fleet of plugins: **python** (venvs auto-activate when you cd
 into a project — never type `source .venv/bin/activate` again),
 **git**, **django**, **flask**, **rails**, **docker**, **npm**,
 **basics** (`ll`, `la`, `mkcd`), **redis** (`rget`/`rset`/`rmon`, a
-real client over `exec 9<>/dev/tcp` — pure psh, no redis-cli), and
+real client over `exec 9<>/dev/tcp` — pure psh, no redis-cli),
+**agent** (`?? find big logs from last week` asks an AI CLI and
+stages the answer in your prompt — editable, highlighted, run only
+by your Enter; `oops` explains the last failure), and
 **shell-shock**, which — as the
 founding documents foretold — goes *XIRT!* when a command fails.
 Drive it with `omp list`, `omp enable <plugin>`, `omp theme <t>`.

@@ -568,6 +568,32 @@ static int try_run_in_parent(const psh_command *c, char ***out_fargv)
     if (na == c->argc)
         return -1; /* redirect-only (or with redirects): fork path */
 
+    /* A function with a glob-shaped name (??) is found by its RAW
+     * word, BEFORE expansion — otherwise a 2-char filename in the
+     * cwd would eat the oracle. Its arguments still expand. */
+    if (na < c->argc && func_lookup(c->argv[na]) &&
+        strpbrk(c->argv[na], "*?[")) {
+        char **rest = expand_command_argv(c, na + 1);
+        if (!rest)
+            return 1;
+        size_t nrest = 0;
+        while (rest[nrest])
+            nrest++;
+        char **fargv = malloc((nrest + 2) * sizeof *fargv);
+        if (!fargv) {
+            free_strv(rest);
+            return 1;
+        }
+        fargv[0] = strdup(c->argv[na]);
+        memcpy(fargv + 1, rest, (nrest + 1) * sizeof *rest);
+        free(rest); /* container only; strings moved */
+        apply_assignments(c, na, false);
+        int status = run_builtin_in_parent(NULL, func_lookup(fargv[0]),
+                                           c, fargv);
+        free_strv(fargv);
+        return status;
+    }
+
     char **fargv = expand_command_argv(c, na);
     if (!fargv)
         return 1;

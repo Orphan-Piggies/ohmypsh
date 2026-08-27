@@ -1,0 +1,67 @@
+# agent — the oracle. `??` asks in plain words; `oops` explains the
+# last failure. The THINKING is an external AI CLI ($OMP_AI_CMD,
+# default "claude -p"); the ANSWER lands in the cockpit via
+# $PSH_PRELOAD — editable, highlighted by the real lexer, run only
+# when a human presses Enter. Never auto-executed. If a suggestion
+# looks spicy, audition it in `cage` first.
+#
+#   ?? find videos over 100M changed last week
+#   oops                     (right after something failed)
+#   ask <words>              same as ??, for the ?-averse
+#
+# $OMP_AI_CMD may be several words; psh never splits variables, so
+# the plugin splits it the honest way — through $( ) newlines.
+
+if [ "$OMP_AI_CMD" = "" ]; then
+    OMP_AI_CMD="claude -p"
+fi
+
+__omp_agent_run() {
+    $(echo $OMP_AI_CMD | tr " " "\n") "$1" 2> /dev/null
+}
+
+# First line of the reply that isn't a code fence → the cockpit.
+__omp_agent_stage() {
+    local line
+    for line in $(echo $1); do
+        case $line in
+            '```'*) ;;
+            *)
+                PSH_PRELOAD=$line
+                return 0
+                ;;
+        esac
+    done
+    echo "the oracle said nothing (is $OMP_AI_CMD installed?)" >&2
+    return 1
+}
+
+??() {
+    local st q ctx reply
+    st=$?
+    q="$@"
+    if [ "$q" = "" ]; then
+        echo "??: ask in plain words:  ?? find big log files" >&2
+        return 2
+    fi
+    ctx="cwd=$PWD"
+    if command -v git > /dev/null; then
+        ctx="$ctx, git branch=$(git branch --show-current 2> /dev/null)"
+    fi
+    reply=$(__omp_agent_run "Reply with ONLY one shell command — POSIX sh compatible (no [[, no arrays, no process substitution), one line, no explanation, no code fences. Task: $q. Context: $ctx, last exit status $st.")
+    __omp_agent_stage "$reply"
+}
+
+ask() { ?? "$@"; }
+
+oops() {
+    local st last reply
+    st=$?
+    last=$(history 2 | head -n 1 | sed 's/^ *[0-9]* *//')
+    if [ "$last" = "" ]; then
+        echo "oops: no history to explain" >&2
+        return 1
+    fi
+    reply=$(__omp_agent_run "The shell command [$last] just exited with status $st in $PWD. Reply with ONLY a corrected version of the command — POSIX sh compatible, one line, no explanation, no code fences.")
+    __omp_agent_stage "$reply"
+}

@@ -1163,6 +1163,19 @@ char *psh_editor_readline(const char *prompt)
                     .hist_ix = hist_n, .yank_hist = hist_n };
     el_ensure(&e, 64);
     e.buf[0] = '\0';
+
+    /* $PSH_PRELOAD (H10.2): a plugin may STAGE the next line — it
+     * appears here fully editable, highlighted by the real lexer,
+     * and runs only when a human presses Enter. Consumed once. */
+    const char *pre = psh_var_get("PSH_PRELOAD");
+    if (pre && *pre) {
+        size_t pn = strlen(pre);
+        el_ensure(&e, pn);
+        memcpy(e.buf, pre, pn);
+        e.buf[pn] = '\0';
+        e.len = e.pos = pn;
+        psh_var_unset("PSH_PRELOAD");
+    }
     refresh(&e);
 
     char *result = NULL;

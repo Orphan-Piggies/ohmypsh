@@ -738,6 +738,34 @@ check "EOF: partial line assigned, status 1" "1:partial" "$out"
 out=$(printf 'read 1bad < /dev/null\necho status=$?\n' | $PSH 2>/dev/null)
 check "read rejects an invalid name (status 2)" "status=2" "$out"
 
+# ---- H10.2: the ?? oracle (agent plugin, fake AI) ----
+
+cat > "$tmp/fake-ai" <<'FAKE'
+#!/bin/sh
+echo '```sh'
+echo 'ls -la'
+echo '```'
+FAKE
+chmod +x "$tmp/fake-ai"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=agent\nOMP_AI_CMD=%s/fake-ai\nsource $OMP_DIR/omp.psh\n?? list files\necho "[$PSH_PRELOAD]"\n' "$OMPD" "$tmp" | $PSH 2>/dev/null)
+check "?? stages the reply, code fences stripped" "[ls -la]" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=agent\nsource $OMP_DIR/omp.psh\n??\necho st=$?\n' "$OMPD" | $PSH 2>/dev/null)
+check "?? without a question is usage (2)" "st=2" "$out"
+
+# ?? is a glob-shaped name: a 2-char file in the cwd must NOT eat it
+touch "$tmp/ab"
+out=$(printf 'cd %s\n%s() { echo oracle-$1; }\n%s x\n' "$tmp" '??' '??' | $PSH 2>/dev/null)
+check "?? resolves as a function even among 2-char files" "oracle-x" "$out"
+rm -f "$tmp/ab"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=agent\nOMP_AI_CMD=%s/fake-ai\nsource $OMP_DIR/omp.psh\nask a thing\necho "[$PSH_PRELOAD]"\n' "$OMPD" "$tmp" | $PSH 2>/dev/null)
+check "ask is ??'s polite synonym" "[ls -la]" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=agent\nOMP_AI_CMD="sh %s/fake-ai"\nsource $OMP_DIR/omp.psh\n?? x\necho "[$PSH_PRELOAD]"\n' "$OMPD" "$tmp" | $PSH 2>/dev/null)
+check "multi-word OMP_AI_CMD splits via \$( )" "[ls -la]" "$out"
+
 # a function may redefine ITSELF while running (omp reload does this
 # via source) — the old body must outlive the call, not be freed
 # under the interpreter's feet

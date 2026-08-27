@@ -53,6 +53,9 @@ echo cyc-one\n
 echo cyc-two\n
 echo \0033.\n
 echo \0033.\0033.\n
+PSH_PRELOAD="echo staged-by-preload"\n
+\n
+echo empty-after=[$PSH_PRELOAD]\n
 exit\n
 EOF
 )
@@ -90,6 +93,8 @@ n=$(printf '%s\n' "$out" | grep -ac '^cyc-two$')
 check "esc+. yanks previous last arg"  "$([ "$n" = 2 ] && echo yes)"
 n=$(printf '%s\n' "$out" | grep -ac '^cyc-one$')
 check "esc+. pressed again cycles back" "$([ "$n" = 2 ] && echo yes)"
+check "PSH_PRELOAD stages the next line" "$(has '^staged-by-preload$')"
+check "preload is consumed exactly once" "$(has '^empty-after=\[\]$')"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

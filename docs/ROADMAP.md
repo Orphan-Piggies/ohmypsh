@@ -348,17 +348,25 @@ the terminal emulator's job, and one small C enabler.
       fallback was DROPPED — on kernels without Landlock cage
       refuses with 125, because a sandbox that silently isn't
       one is worse than none. Proven by caging psh itself.
-- [ ] H10.2 the ?? plugin + its C enabler. Enabler first: the
-      editor learns to PRELOAD its next line from the shell
-      (zsh's print -z; spelling TBD — likely a psh_editor_preload
-      hook or $PSH_PRELOAD, consumed once). Then omp grows ??:
-      `?? find big videos changed last week` gathers context the
-      hooks already know (cwd, branch, $?, $PSH_CMD_MS), asks an
-      external AI CLI (claude, llm, whatever $OMP_AI_CMD names),
-      and lands the suggested command IN THE COCKPIT as an
-      editable preview — highlighted by the real lexer, executed
-      only when the human presses Enter. Never auto-run. `oops`
-      rides the same enabler: explain-and-fix the last failure.
+- [x] H10.2 the ?? oracle, landed as spec'd plus two C dispensations
+      it turned out to need. $PSH_PRELOAD: the editor stages its
+      next line from the variable, fully editable, consumed once
+      (pty-tested: staged, ran on a bare Enter, gone after). The
+      parser blesses `??` as a function name, and the executor
+      finds glob-shaped function names by their RAW word — before
+      expansion, so a 2-char file in the cwd can't eat the oracle.
+      omp/plugins/agent.psh does the rest in pure psh: ?? (and
+      `ask`) gathers cwd/branch/$?, asks $OMP_AI_CMD (default
+      claude -p, multi-word split via $( ) — the honest way),
+      strips code fences, stages ONE line. `oops` reads the last
+      command from history and stages the correction. NEVER
+      auto-run; spicy suggestions can audition in cage. Proven
+      against the real claude CLI: "?? total size of src, human
+      readable" staged `du -sh src`.
+H10 closed 2026-08-27 — the cage holds, the oracle answers. Both
+suggestions from the agent pile that survived the salt are real
+now; the rejects stay below, reasons attached.
+
 - rejected, with reasons on record: stderr capture for AI context
   (interposing every child's fd 2 un-ttys their stderr — taxes
   everything, changes behavior, serves a rare feature); clickable
