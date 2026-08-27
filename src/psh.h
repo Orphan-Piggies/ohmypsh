@@ -30,7 +30,7 @@
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
-#define PSH_VERSION "0.13.0"
+#define PSH_VERSION "0.13.1"
 
 /*
  * The mascot glyph. Unicode has no pistachio emoji (🥜 is officially
