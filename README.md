@@ -13,14 +13,22 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-Horizon 4 of [the roadmap](docs/ROADMAP.md) — the cockpit: a
-hand-rolled raw-mode line editor with **fish-style autosuggestions**
-(your history, grey, one → away), **syntax highlighting straight
-from the shell's real lexer** (valid commands green, typos red
-before you press Enter, keywords bold, strings yellow), incremental
-Ctrl-R search, tab completion, bracketed paste, multi-line editing,
-and Ctrl-X Ctrl-E to finish the line in your `$EDITOR`. Zero
+**v0.12.0 — the wire and the armory.** Nine horizons of
+[the roadmap](docs/ROADMAP.md) sailed. The cockpit: a hand-rolled
+raw-mode line editor with **fish-style autosuggestions** (your
+history, grey, one → away), **syntax highlighting straight from
+the shell's real lexer** (valid commands green, typos red before
+you press Enter), incremental Ctrl-R search, tab completion,
+bracketed paste, multi-line editing, Ctrl-X Ctrl-E. Zero
 dependencies — readline sailed home in v0.11.0.
+
+New in v0.12.0: **the H7 wire** — numbered-fd redirections
+(`2>&1`, `3<>`, dup/close), the `exec` and `read` builtins, and
+`/dev/tcp/HOST/PORT` sockets, proven against a live redis with a
+pure-psh client plugin; **the armory** — `salt` and `roast` (see
+below); and the **Google-audit hardening**: `${var#pat}`-family
+parameter operators, heredocs, `set -u`/`-o pipefail`,
+`$PIPESTATUS`, `readonly`, and `\`-newline continuation.
 
 Underneath: a complete language (`if`/`elif`/`else`, `while`, `for`,
 `case`, functions with `$1`..`$9` and a true `$@` splat,

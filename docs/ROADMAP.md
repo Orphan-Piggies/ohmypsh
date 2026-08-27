@@ -198,7 +198,7 @@ now that we own the whole stack down to the line editor.
       auto-activation, XIRT — docs/screenshots/)
 - [ ] Packaging: deb / AUR (when there's a public repo to point at)
 
-## H7 — the wire (opened 2026-08-26)
+## H7 — the wire ✅ (v0.12.0; opened 2026-08-26)
 The bash /dev/tcp redis trick, earned honestly. Not a redis builtin —
 RESP belongs in redis-cli, not in C that rots. The prize is the
 generic mechanism: sockets as file descriptors, driven by redirection
@@ -241,7 +241,7 @@ syntax we need anyway. Staged so every rung is useful on its own:
       +PONG compares CLEAN, and a burst of two commands reads back
       as two exact replies.
 
-## H8 — the armory (opened 2026-08-27)
+## H8 — the armory (opened 2026-08-27; salt + roast ship in v0.12.0)
 Weapons for the pistachio: standalone tools that ship with the
 shell but stand alone (tools/, built and installed with psh).
 - [x] H8.1 🧂 salt — cat with colors, faithful to the bytes. The
@@ -271,7 +271,7 @@ shell but stand alone (tools/, built and installed with psh).
       for salt's -l? an omp plugin aliasing cat when interactive?
       salt/roast: honor NO_COLOR? roast --toc?
 
-## H9 — the Google audit (opened 2026-08-27)
+## H9 — the Google audit ✅ (v0.12.0; opened 2026-08-27)
 Read the Google Shell Style Guide and held the bag up against it.
 Verdict: a compliant bash script won't run here, but psh obsoletes
 the guide's hardest third — the quoting rituals exist to fight
