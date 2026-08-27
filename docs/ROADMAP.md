@@ -228,9 +228,18 @@ syntax we need anyway. Staged so every rung is useful on its own:
       now restores the dispositions it actually saved. Smoke suite
       does a LIVE roundtrip: exec 3<>/dev/tcp → echo >&3 → head <&3
       against a local echo server.
-- [ ] H7.4 `read` builtin is born (`read -r var`, `read var <&N`) —
-      overdue on its own. One-byte reads on non-seekable fds, so
-      `read -r line <&3` is the safe way to talk to a socket
-      (`head` gulps 8K buffers and eats replies — works in demos,
-      loses data daily). Redis via exec 3<>/dev/tcp/127.0.0.1/6379
-      becomes a party trick that actually holds.
+- [x] H7.4 `read` builtin is born (`read [-r] NAME...`) — one-byte
+      reads ALWAYS, so `read -r line <&3` takes exactly one reply
+      from a socket and leaves the rest (`head` gulps 8K buffers
+      and eats replies — works in demos, loses data daily). psh
+      flavor, on purpose: ONE name takes the line verbatim (the
+      founding never-split rule; several names split on blanks,
+      last takes the rest), and a trailing \r is stripped — every
+      line protocol ends \r\n and the ghost \r bites everyone in
+      sh. EOF delivers the partial line with status 1; Ctrl-C is
+      130. Verified against a LIVE containerized redis: PING →
+      +PONG compares CLEAN, and a burst of two commands reads back
+      as two exact replies.
+
+H7 closed 2026-08-27, all four rungs. The blog snippet that opened
+it runs verbatim; the omp redis plugin is now pure-psh territory.

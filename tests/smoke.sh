@@ -561,10 +561,42 @@ srv.serve_forever()
     while [ ! -s "$tmp/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
     out=$(printf 'exec 3<> /dev/tcp/127.0.0.1/%s\necho salam >&3\nhead -n 1 <&3\n' "$(cat "$tmp/port")" | $PSH)
     check "tcp roundtrip: exec 3<>/dev/tcp, write >&3, read <&3" "salam" "$out"
+
+    # the H7.4 proof: TWO lines sent before any read — head would
+    # gulp both in one buffer; byte-at-a-time read takes exactly one
+    out=$(printf 'exec 3<> /dev/tcp/127.0.0.1/%s\necho first >&3\necho second >&3\nread -r a <&3\nread -r b <&3\necho "$a/$b"\nexec 3>&-\n' "$(cat "$tmp/port")" | $PSH)
+    check "read -r takes one reply per call from a burst" "first/second" "$out"
     kill $NETPID 2>/dev/null
 else
     printf 'skip tcp roundtrip (no python3)\n'
 fi
+
+# ---- H7.4: the read builtin ----
+
+printf '  spaced  out  \n' > "$tmp/rl"
+out=$(printf 'read x < %s\necho "[$x]"\n' "$tmp/rl" | $PSH)
+check "read with ONE name takes the line verbatim" "[  spaced  out  ]" "$out"
+
+printf 'a b c d\n' > "$tmp/rl"
+out=$(printf 'read x y < %s\necho "$x/$y"\n' "$tmp/rl" | $PSH)
+check "several names split on blanks, last takes the rest" "a/b c d" "$out"
+
+printf 'crlf\r\n' > "$tmp/rl"
+out=$(printf 'read -r x < %s\nif [ "$x" = crlf ]; then echo clean; fi\n' "$tmp/rl" | $PSH)
+check "trailing CR of CRLF is stripped" "clean" "$out"
+
+printf 'one\\\ntwo\n' > "$tmp/rl"
+out=$(printf 'read x < %s\necho "$x"\n' "$tmp/rl" | $PSH)
+check "backslash-newline continues the line without -r" "onetwo" "$out"
+out=$(printf 'read -r x < %s\necho "$x"\n' "$tmp/rl" | $PSH)
+check "-r keeps the backslash raw" "one\\" "$out"
+
+printf 'partial' > "$tmp/rl"
+out=$(printf 'read x < %s\necho "$?:$x"\n' "$tmp/rl" | $PSH)
+check "EOF: partial line assigned, status 1" "1:partial" "$out"
+
+out=$(printf 'read 1bad < /dev/null\necho status=$?\n' | $PSH 2>/dev/null)
+check "read rejects an invalid name (status 2)" "status=2" "$out"
 
 # a function may redefine ITSELF while running (omp reload does this
 # via source) — the old body must outlive the call, not be freed

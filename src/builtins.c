@@ -8,6 +8,7 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -321,6 +322,132 @@ static int bi_history(char **argv)
     return 0;
 }
 
+/*
+ * read [-r] NAME [NAME...] — one line from stdin into variables.
+ *
+ * The H7 capstone: reads ONE BYTE AT A TIME, always. On a socket or
+ * pipe that is the difference between a client and a data shredder —
+ * a block read would gulp the next reply too and drop it on the
+ * floor (which is why `head <&3` only works in demos). One line, one
+ * newline consumed, nothing beyond it touched.
+ *
+ * psh flavor, documented divergences from POSIX sh:
+ *   - ONE name: the variable gets the line VERBATIM (no IFS
+ *     trimming — the founding never-split rule). Several names:
+ *     an explicit ask, split on blanks, last name takes the rest.
+ *   - A single trailing \r is stripped: every line protocol on
+ *     earth ends \r\n, and everyone trips on the ghost \r in sh.
+ * Without -r, backslash escapes the next byte and \<newline>
+ * continues the line, as in sh. Status: 0 on a line, 1 at EOF
+ * (a partial line is still assigned), 130 on Ctrl-C.
+ */
+static int bi_read(char **argv)
+{
+    bool raw = false;
+    size_t v = 1;
+    if (argv[v] && strcmp(argv[v], "-r") == 0) {
+        raw = true;
+        v++;
+    }
+    if (!argv[v]) {
+        fprintf(stderr, "psh: read: a variable name is required\n");
+        return 2;
+    }
+    for (size_t j = v; argv[j]; j++) {
+        const char *n = argv[j];
+        bool ok = isalpha((unsigned char)n[0]) || n[0] == '_';
+        for (size_t k = 1; ok && n[k]; k++)
+            ok = isalnum((unsigned char)n[k]) || n[k] == '_';
+        if (!ok) {
+            fprintf(stderr, "psh: read: %s: not a valid name\n", n);
+            return 2;
+        }
+    }
+
+    size_t cap = 128, len = 0;
+    char *buf = malloc(cap);
+    if (!buf) {
+        fprintf(stderr, "psh: out of memory\n");
+        return 1;
+    }
+    int status = 0;
+    for (;;) {
+        char ch;
+        ssize_t n = read(STDIN_FILENO, &ch, 1);
+        if (n < 0) {
+            if (errno == EINTR) {
+                if (psh_interrupted) {
+                    free(buf);
+                    return 130; /* Ctrl-C: no assignment, just out */
+                }
+                continue;
+            }
+            fprintf(stderr, "psh: read: %s\n", strerror(errno));
+            status = 1;
+            break;
+        }
+        if (n == 0) {
+            status = 1; /* EOF — a partial line is still delivered */
+            break;
+        }
+        if (ch == '\n')
+            break;
+        if (!raw && ch == '\\') {
+            char esc;
+            ssize_t n2 = read(STDIN_FILENO, &esc, 1);
+            if (n2 <= 0) {
+                status = 1;
+                break;
+            }
+            if (esc == '\n')
+                continue; /* \<newline>: the line goes on */
+            ch = esc;
+        }
+        if (len + 1 >= cap) {
+            cap *= 2;
+            char *grown = realloc(buf, cap);
+            if (!grown) {
+                free(buf);
+                fprintf(stderr, "psh: out of memory\n");
+                return 1;
+            }
+            buf = grown;
+        }
+        buf[len++] = ch;
+    }
+    if (len && buf[len - 1] == '\r')
+        len--; /* the ghost \r of CRLF, exorcised */
+    buf[len] = '\0';
+
+    if (!argv[v + 1]) {
+        psh_var_set(argv[v], buf); /* one name: the line, verbatim */
+        free(buf);
+        return status;
+    }
+
+    /* Several names: split on blanks; the last takes the rest. */
+    char *p = buf;
+    for (size_t j = v; argv[j]; j++) {
+        while (*p == ' ' || *p == '\t')
+            p++;
+        if (!argv[j + 1]) {
+            char *end = p + strlen(p);
+            while (end > p && (end[-1] == ' ' || end[-1] == '\t'))
+                *--end = '\0';
+            psh_var_set(argv[j], p);
+            break;
+        }
+        char *field = p;
+        while (*p && *p != ' ' && *p != '\t')
+            p++;
+        if (*p)
+            *p++ = '\0';
+        psh_var_set(argv[j], field);
+    }
+    free(buf);
+    return status;
+}
+
 static int bi_help(char **argv)
 {
     (void)argv;
@@ -368,6 +495,7 @@ static const struct {
     { "return",   bi_return,      "return from a function (return [n])" },
     { "break",    bi_break,       "exit the enclosing loop" },
     { "continue", bi_continue,    "next iteration of the enclosing loop" },
+    { "read",     bi_read,        "one line into variables (read -r line <&3)" },
     { "history",  bi_history,     "the story so far (history [N], -c forgets)" },
     { "help",  bi_help,           "this text" },
     { "crack", psh_builtin_crack, "???" },
