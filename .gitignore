@@ -7,3 +7,5 @@ roast
 roast-asan
 cage
 cage-asan
+ohmypsh_*.deb
+debstage/

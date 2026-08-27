@@ -157,13 +157,26 @@ cage -w build make                 # build allowed, nothing else
 ## Build & run
 
 ```sh
-make        # builds ./psh and ./salt
+make        # builds ./psh, ./salt, ./roast, ./cage
 make test   # runs the smoke tests
 ./psh       # step into the bag
 ```
 
 Requires a C compiler and a POSIX system. That's the whole list —
 no libraries, no packages, no `-dev` anything.
+
+## Install
+
+```sh
+sudo make install     # /usr/local: binaries, man pages, omp
+make deb              # Debian/Ubuntu: builds ohmypsh_V_ARCH.deb
+                      # (dpkg-deb only; registers psh in /etc/shells)
+```
+
+Arch users: `packaging/aur/` holds the PKGBUILD — the AUR name
+`psh` belongs to another shell, so the package answers to
+**ohmypsh** and installs `/usr/bin/psh`. The omp framework lands
+in `share/psh/omp`; point `OMP_DIR` there in `~/.pshrc`.
 
 ## Layout
 

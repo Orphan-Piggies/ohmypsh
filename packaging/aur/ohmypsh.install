@@ -1,0 +1,16 @@
+# Register /usr/bin/psh as a login shell; unregister on removal.
+
+post_install() {
+    if ! grep -qx /usr/bin/psh etc/shells 2>/dev/null &&
+       ! grep -qx /usr/bin/psh /etc/shells 2>/dev/null; then
+        echo /usr/bin/psh >> /etc/shells
+    fi
+}
+
+post_upgrade() {
+    post_install
+}
+
+post_remove() {
+    sed -i '\|^/usr/bin/psh$|d' /etc/shells
+}

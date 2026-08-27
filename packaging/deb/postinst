@@ -1,0 +1,6 @@
+#!/bin/sh
+# Register psh as a login shell, the Debian way.
+set -e
+if [ "$1" = "configure" ] && command -v add-shell > /dev/null 2>&1; then
+    add-shell /usr/bin/psh
+fi

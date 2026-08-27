@@ -1,0 +1,33 @@
+# Maintainer: Ziya Bayramov <ziya.bayramov.1@yandex.com>
+# psh itself — the AUR name "psh" belongs to another shell, so the
+# package wears the project's full name and installs /usr/bin/psh.
+pkgname=ohmypsh
+pkgver=0.13.2
+pkgrel=1
+pkgdesc="psh, the pistachio shell — with salt, roast and cage"
+arch=('x86_64' 'aarch64')
+url="https://github.com/marmeladze/ohmypsh"
+license=('MIT')
+depends=('glibc')
+optdepends=('ollama: local AI for the ?? oracle plugin'
+            'git: branch segment in the omp prompt')
+install=ohmypsh.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('5346cb48bcb8d9f9dca94479a0b8066077f7930c2237cf5d39ef2d30eae8779e')
+
+build() {
+    cd "$pkgname-$pkgver"
+    make psh salt roast cage
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    # self-gating: network/redis/Landlock tests skip where unavailable
+    make test
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    make install DESTDIR="$pkgdir" PREFIX=/usr
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

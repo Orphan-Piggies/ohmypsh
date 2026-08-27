@@ -62,19 +62,45 @@ test-asan: psh-asan salt-asan roast-asan cage-asan
 	CAGE=./cage-asan sh tests/cage.sh
 
 PREFIX ?= /usr/local
+DESTDIR ?=
 
+# DESTDIR supports staged installs — packaging (deb, PKGBUILD) uses
+# it; a plain `make install` still lands in /usr/local. The omp
+# framework ships too: point OMP_DIR at share/psh/omp in ~/.pshrc.
 install: psh salt roast cage
-	install -m 755 psh $(PREFIX)/bin/psh
-	install -m 755 salt $(PREFIX)/bin/salt
-	install -m 755 roast $(PREFIX)/bin/roast
-	install -m 755 cage $(PREFIX)/bin/cage
-	install -d $(PREFIX)/share/man/man1
-	install -m 644 docs/psh.1 $(PREFIX)/share/man/man1/psh.1
-	install -m 644 docs/salt.1 $(PREFIX)/share/man/man1/salt.1
-	install -m 644 docs/roast.1 $(PREFIX)/share/man/man1/roast.1
-	install -m 644 docs/cage.1 $(PREFIX)/share/man/man1/cage.1
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 psh salt roast cage $(DESTDIR)$(PREFIX)/bin
+	install -d $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 644 docs/psh.1 docs/salt.1 docs/roast.1 docs/cage.1 \
+	    $(DESTDIR)$(PREFIX)/share/man/man1
+	install -d $(DESTDIR)$(PREFIX)/share/psh
+	cp -r omp $(DESTDIR)$(PREFIX)/share/psh/
+
+# A binary .deb, no debhelper ceremony: stage via install, add the
+# DEBIAN control files, dpkg-deb. `make deb` → ohmypsh_V_ARCH.deb
+VERSION := $(shell sed -n 's/\#define PSH_VERSION "\(.*\)"/\1/p' src/psh.h)
+DEBARCH := $(shell dpkg --print-architecture 2>/dev/null || echo amd64)
+
+deb: all
+	rm -rf debstage
+	$(MAKE) install DESTDIR=debstage PREFIX=/usr
+	strip debstage/usr/bin/psh debstage/usr/bin/salt \
+	    debstage/usr/bin/roast debstage/usr/bin/cage
+	gzip -9n debstage/usr/share/man/man1/*.1
+	install -d debstage/usr/share/doc/ohmypsh
+	install -m 644 LICENSE debstage/usr/share/doc/ohmypsh/copyright
+	install -d debstage/DEBIAN
+	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEBARCH)/' \
+	    packaging/deb/control.in > debstage/DEBIAN/control
+	install -m 755 packaging/deb/postinst packaging/deb/postrm \
+	    debstage/DEBIAN
+	dpkg-deb --build --root-owner-group debstage \
+	    ohmypsh_$(VERSION)_$(DEBARCH).deb
+	rm -rf debstage
 
 clean:
-	rm -f psh psh-asan salt salt-asan roast roast-asan cage cage-asan $(OBJ)
+	rm -f psh psh-asan salt salt-asan roast roast-asan cage cage-asan \
+	    $(OBJ) ohmypsh_*.deb
+	rm -rf debstage
 
-.PHONY: all test test-editor test-asan install clean
+.PHONY: all test test-editor test-asan install deb clean

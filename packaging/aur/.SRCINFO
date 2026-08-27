@@ -1,0 +1,16 @@
+pkgbase = ohmypsh
+	pkgdesc = psh, the pistachio shell — with salt, roast and cage
+	pkgver = 0.13.2
+	pkgrel = 1
+	url = https://github.com/marmeladze/ohmypsh
+	install = ohmypsh.install
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = glibc
+	optdepends = ollama: local AI for the ?? oracle plugin
+	optdepends = git: branch segment in the omp prompt
+	source = ohmypsh-0.13.2.tar.gz::https://github.com/marmeladze/ohmypsh/archive/refs/tags/v0.13.2.tar.gz
+	sha256sums = 5346cb48bcb8d9f9dca94479a0b8066077f7930c2237cf5d39ef2d30eae8779e
+
+pkgname = ohmypsh

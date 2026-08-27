@@ -1,0 +1,8 @@
+#!/bin/sh
+# On the way out: stop offering psh as a login shell.
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if command -v remove-shell > /dev/null 2>&1; then
+        remove-shell /usr/bin/psh || true
+    fi
+fi

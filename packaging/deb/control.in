@@ -1,0 +1,20 @@
+Package: ohmypsh
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Ziya Bayramov <ziya.bayramov.1@yandex.com>
+Section: shells
+Priority: optional
+Depends: libc6
+Suggests: git
+Homepage: https://github.com/marmeladze/ohmypsh
+Description: psh, the pistachio shell - with salt, roast and cage
+ A Unix shell written from scratch in C, following the familiar-core
+ philosophy: your fingers already know it (pipes, redirects, &&, job
+ control, /dev/tcp), but the classic sh traps are fixed - variables
+ never word-split, so `rm $file` deletes exactly one file, always.
+ .
+ Ships with a fish-style line editor (autosuggestions, real-lexer
+ syntax highlighting), the oh-my-psh plugin framework (installed to
+ /usr/share/psh/omp), and the armory: salt (cat with colors that
+ never changes a byte), roast (Markdown rendered for reading), and
+ cage (run untrusted commands against a Landlock read-only world).

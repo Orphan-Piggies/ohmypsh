@@ -196,7 +196,14 @@ now that we own the whole stack down to the line editor.
 - [x] Antep Mode screenshots for the README (a human with a terminal
       that has good taste delivered three: dirty marker, venv
       auto-activation, XIRT — docs/screenshots/)
-- [ ] Packaging: deb / AUR (when there's a public repo to point at)
+- [x] Packaging (v0.13.2): `make deb` builds ohmypsh_V_ARCH.deb
+      with dpkg-deb alone (no debhelper ceremony) — four binaries
+      stripped, man pages gzipped, omp under /usr/share/psh/omp,
+      add-shell/remove-shell in postinst/postrm. packaging/aur/
+      carries the PKGBUILD + .SRCINFO (AUR name "psh" was taken by
+      another shell — the package answers to ohmypsh, installs
+      /usr/bin/psh). Both ride `make install DESTDIR=`, which the
+      install target learned for the occasion.
 
 ## H7 — the wire ✅ (v0.12.0; opened 2026-08-26)
 The bash /dev/tcp redis trick, earned honestly. Not a redis builtin —
