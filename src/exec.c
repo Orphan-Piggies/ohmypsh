@@ -21,10 +21,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fnmatch.h>
+#include <netdb.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -286,6 +288,70 @@ static char *andor_to_string(const psh_andor *list)
  * Explicit redirects run AFTER pipe wiring, so `a | b > f` sends b's
  * output to f — like sh.
  */
+/*
+ * H7.3: /dev/tcp/HOST/PORT and /dev/udp/HOST/PORT are not files —
+ * they are an open(2)-shaped door to a socket, as in bash (Linux
+ * has no such paths; the shell fakes them). PORT may be a service
+ * name; HOST may be a numeric IPv6 address (the LAST slash splits).
+ * connect() stays interruptible: Ctrl-C aborts a dead host instead
+ * of hanging the prompt.
+ */
+static int open_net_fd(const char *path)
+{
+    bool udp = strncmp(path, "/dev/udp/", 9) == 0;
+    const char *rest = path + 9; /* both prefixes are 9 bytes */
+    const char *slash = strrchr(rest, '/');
+    if (!slash || slash == rest || !slash[1]) {
+        fprintf(stderr, "psh: %s: expected /dev/%s/HOST/PORT\n", path,
+                udp ? "udp" : "tcp");
+        return -1;
+    }
+    char *host = strndup(rest, (size_t)(slash - rest));
+    if (!host) {
+        fprintf(stderr, "psh: out of memory\n");
+        return -1;
+    }
+
+    struct addrinfo hints = { 0 }, *res = NULL;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = udp ? SOCK_DGRAM : SOCK_STREAM;
+    int gai = getaddrinfo(host, slash + 1, &hints, &res);
+    if (gai != 0) {
+        fprintf(stderr, "psh: %s: %s\n", path,
+                gai == EAI_SYSTEM ? strerror(errno) : gai_strerror(gai));
+        free(host);
+        return -1;
+    }
+    free(host);
+
+    int fd = -1, cerr = 0;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) {
+            cerr = errno;
+            continue;
+        }
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0)
+            break;
+        cerr = errno;
+        close(fd);
+        fd = -1;
+        if (cerr == EINTR)
+            break; /* Ctrl-C mid-connect: stop trying, not the shell */
+    }
+    freeaddrinfo(res);
+    if (fd < 0)
+        fprintf(stderr, "psh: %s: %s\n", path,
+                cerr == EINTR ? "interrupted" : strerror(cerr));
+    return fd;
+}
+
+static bool is_net_path(const char *w)
+{
+    return strncmp(w, "/dev/tcp/", 9) == 0 ||
+           strncmp(w, "/dev/udp/", 9) == 0;
+}
+
 static int apply_one_redir(const psh_redir *r)
 {
     char *word = psh_expand_word_single(r->target);
@@ -316,19 +382,28 @@ static int apply_one_redir(const psh_redir *r)
         return 0;
     }
 
-    int flags = 0;
-    switch (r->kind) {
-    case RD_IN:     flags = O_RDONLY; break;
-    case RD_OUT:    flags = O_WRONLY | O_CREAT | O_TRUNC; break;
-    case RD_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
-    case RD_RDWR:   flags = O_RDWR | O_CREAT; break;
-    default: break; /* dup kinds handled above */
-    }
-    int fd = open(word, flags, 0644);
-    if (fd < 0) {
-        fprintf(stderr, "psh: %s: %s\n", word, strerror(errno));
-        free(word);
-        return -1;
+    int fd;
+    if (is_net_path(word)) {
+        fd = open_net_fd(word); /* prints its own error */
+        if (fd < 0) {
+            free(word);
+            return -1;
+        }
+    } else {
+        int flags = 0;
+        switch (r->kind) {
+        case RD_IN:     flags = O_RDONLY; break;
+        case RD_OUT:    flags = O_WRONLY | O_CREAT | O_TRUNC; break;
+        case RD_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
+        case RD_RDWR:   flags = O_RDWR | O_CREAT; break;
+        default: break; /* dup kinds handled above */
+        }
+        fd = open(word, flags, 0644);
+        if (fd < 0) {
+            fprintf(stderr, "psh: %s: %s\n", word, strerror(errno));
+            free(word);
+            return -1;
+        }
     }
     free(word);
     if (fd != r->fd) {
@@ -449,24 +524,22 @@ static int try_run_in_parent(const psh_command *c)
             status = 1;
         } else if (fargv[1]) {
             /* Ignored dispositions SURVIVE execvp; hand the program
-             * default ones (handlers reset themselves). */
-            signal(SIGQUIT, SIG_DFL);
-            if (psh_job_control) {
-                signal(SIGTSTP, SIG_DFL);
-                signal(SIGTTIN, SIG_DFL);
-                signal(SIGTTOU, SIG_DFL);
-            }
+             * default ones (handlers reset themselves), remembering
+             * the old ones in case the exec fails and we are still
+             * a shell after all. */
+            static const int sigs[] = { SIGQUIT, SIGTSTP, SIGTTIN,
+                                        SIGTTOU, SIGPIPE };
+            enum { NSIGS = sizeof sigs / sizeof sigs[0] };
+            void (*old[NSIGS])(int);
+            for (size_t i = 0; i < NSIGS; i++)
+                old[i] = signal(sigs[i], SIG_DFL);
             execvp(fargv[1], fargv + 1);
             status = errno == ENOENT ? 127 : 126;
             fprintf(stderr, "psh: exec: %s: %s\n", fargv[1],
                     errno == ENOENT ? "command not found"
                                     : strerror(errno));
-            signal(SIGQUIT, SIG_IGN); /* still a shell after all */
-            if (psh_job_control) {
-                signal(SIGTSTP, SIG_IGN);
-                signal(SIGTTIN, SIG_IGN);
-                signal(SIGTTOU, SIG_IGN);
-            }
+            for (size_t i = 0; i < NSIGS; i++)
+                signal(sigs[i], old[i]);
         }
         free_strv(fargv);
         return status;

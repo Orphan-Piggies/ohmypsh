@@ -388,6 +388,10 @@ int main(int argc, char **argv)
         sa.sa_handler = on_sigint;
         sigaction(SIGINT, &sa, NULL);
         signal(SIGQUIT, SIG_IGN);
+        /* H7.3: fds can be sockets now (exec 3<>/dev/tcp/...). A
+         * write to a dead one must report EPIPE, not close the tab.
+         * Children get SIG_DFL back (jobs.c), pipelines unharmed. */
+        signal(SIGPIPE, SIG_IGN);
     }
     /* Non-interactive: default dispositions — a script dies on
      * Ctrl-C like any other program, which is what callers expect. */

@@ -534,6 +534,38 @@ check "type knows exec" "exec is a shell builtin" "$out"
 out=$(printf 'exec 3<> %s/wire\necho PING >&3\nexec 3>&-\nexec 4< %s/wire\nhead -n 1 <&4\n' "$tmp" "$tmp" | $PSH)
 check "open 3<>, write >&3, reopen, read <&4 — the wire holds" "PING" "$out"
 
+# ---- H7.3: /dev/tcp — sockets behind open() ----
+
+out=$(printf 'exec 3<> /dev/tcp/127.0.0.1/1\necho alive=$?\n' | $PSH 2>/dev/null)
+check "refused connection is an error, not an exit" "alive=1" "$out"
+
+out=$(printf 'cat < /dev/tcp/only-host\necho alive=$?\n' | $PSH 2>/dev/null)
+check "malformed /dev/tcp path is an error" "alive=1" "$out"
+
+printf 'echo ping > /dev/udp/127.0.0.1/9\n' | $PSH 2>/dev/null
+check "udp send to the discard port" "0" "$?"
+
+if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import socketserver
+class Echo(socketserver.StreamRequestHandler):
+    def handle(self):
+        for line in self.rfile:
+            self.wfile.write(line); self.wfile.flush()
+srv = socketserver.TCPServer(("127.0.0.1", 0), Echo)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+' > "$tmp/port" 2>/dev/null &
+    NETPID=$!
+    i=0
+    while [ ! -s "$tmp/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+    out=$(printf 'exec 3<> /dev/tcp/127.0.0.1/%s\necho salam >&3\nhead -n 1 <&3\n' "$(cat "$tmp/port")" | $PSH)
+    check "tcp roundtrip: exec 3<>/dev/tcp, write >&3, read <&3" "salam" "$out"
+    kill $NETPID 2>/dev/null
+else
+    printf 'skip tcp roundtrip (no python3)\n'
+fi
+
 # a function may redefine ITSELF while running (omp reload does this
 # via source) — the old body must outlive the call, not be freed
 # under the interpreter's feet

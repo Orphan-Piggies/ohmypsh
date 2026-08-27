@@ -236,6 +236,7 @@ void psh_job_child_setup(pid_t pgid, bool foreground)
     }
     signal(SIGINT, SIG_DFL);
     signal(SIGQUIT, SIG_DFL);
+    signal(SIGPIPE, SIG_DFL); /* the shell may ignore it; jobs mustn't */
 }
 
 /* ---------------- foreground / background ---------------- */

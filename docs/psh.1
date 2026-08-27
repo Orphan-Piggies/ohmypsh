@@ -38,6 +38,10 @@ Pipelines
 .RB ( a\ |\ b ),
 redirects with optional fd numbers
 .RB ( >\ >>\ <\ <>\ 2>\ 2>&1\ 2>&\- ),
+sockets as redirect targets
+.RB ( exec\ 3<>/dev/tcp/HOST/PORT ,
+also
+.BR /dev/udp ),
 lists
 .RB ( &&\ ||\ ; ),
 background jobs

@@ -218,10 +218,16 @@ syntax we need anyway. Staged so every rung is useful on its own:
       program default signal dispositions. A failed exec is
       survived, like interactive bash. In a pipeline the child just
       becomes the command.
-- [ ] H7.3 the dessert: `/dev/tcp/host/port` (and `/dev/udp/...`)
-      intercepted in the redirect path — getaddrinfo + socket +
-      connect, ~40 lines. connect() stays SIGINT-interruptible so a
-      dead host can't brick the prompt.
+- [x] H7.3 the dessert: `/dev/tcp/host/port` (and `/dev/udp/...`)
+      intercepted in the redirect path — getaddrinfo (hostnames,
+      service names, numeric IPv6) + socket + connect, tried across
+      all addresses; EINTR aborts so a dead host can't brick the
+      prompt. SIGPIPE hygiene came with it: the interactive shell
+      ignores it (a dead socket reports EPIPE instead of closing
+      the tab), children get SIG_DFL back, and a failed `exec cmd`
+      now restores the dispositions it actually saved. Smoke suite
+      does a LIVE roundtrip: exec 3<>/dev/tcp → echo >&3 → head <&3
+      against a local echo server.
 - [ ] H7.4 `read` builtin is born (`read -r var`, `read var <&N`) —
       overdue on its own. One-byte reads on non-seekable fds, so
       `read -r line <&3` is the safe way to talk to a socket
