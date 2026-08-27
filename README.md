@@ -175,4 +175,3 @@ GPL-licensed link went overboard.
 
 ---
 
-*NTT layihəsidir. Sistem indi duzludur.* 🫛
