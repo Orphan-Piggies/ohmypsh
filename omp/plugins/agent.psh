@@ -11,24 +11,58 @@
 #
 # $OMP_AI_CMD may be several words; psh never splits variables, so
 # the plugin splits it the honest way — through $( ) newlines.
+# Local oracles work too (tested):
+#   OMP_AI_CMD="ollama run qwen2.5"                      # snappy
+#   OMP_AI_CMD="ollama run llama3.1"
+#   OMP_AI_CMD="ollama run gemma3"
+#   OMP_AI_CMD="ollama run --think=false deepseek-r1:8b" # reasoner,
+#                            # slow but sure; without --think=false
+#                            # it soliloquizes for ten minutes
 
 if [ "$OMP_AI_CMD" = "" ]; then
     OMP_AI_CMD="claude -p"
 fi
 
+# Streaming CLIs (ollama) redraw with ANSI cursor codes ON STDOUT;
+# scrub those and stray \r before anything reads the reply.
 __omp_agent_run() {
-    $(echo $OMP_AI_CMD | tr " " "\n") "$1" 2> /dev/null
+    $(echo $OMP_AI_CMD | tr " " "\n") "$1" 2> /dev/null \
+        | sed "s/$(printf '\033')\[[0-9;]*[A-Za-z]//g" | tr -d "\r"
 }
 
-# First line of the reply that isn't a code fence → the cockpit.
+# Pick the ONE line to stage. Reasoning models (deepseek-r1) stream
+# their whole soliloquy first and fence the final answer — so if the
+# reply has a code fence, the answer lives inside it. Otherwise take
+# the first line that isn't part of a thinking block.
 __omp_agent_stage() {
-    local line
+    local line infence skip
+    infence=no
     for line in $(echo $1); do
         case $line in
-            '```'*) ;;
+            '```'*)
+                if [ "$infence" = "yes" ]; then
+                    break
+                fi
+                infence=yes
+                ;;
             *)
-                PSH_PRELOAD=$line
-                return 0
+                if [ "$infence" = "yes" ]; then
+                    PSH_PRELOAD=$line
+                    return 0
+                fi
+                ;;
+        esac
+    done
+    skip=no
+    for line in $(echo $1); do
+        case $line in
+            'Thinking...'*|'<think>'*) skip=yes ;;
+            '...done thinking'*|'</think>'*) skip=no ;;
+            *)
+                if [ "$skip" = "no" ]; then
+                    PSH_PRELOAD=$line
+                    return 0
+                fi
                 ;;
         esac
     done
