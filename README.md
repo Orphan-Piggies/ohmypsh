@@ -13,8 +13,11 @@ will never word-split, so `rm $file` deletes exactly one file, always.
 
 ## Status
 
-**v0.12.0 — the wire and the armory.** Nine horizons of
-[the roadmap](docs/ROADMAP.md) sailed. The cockpit: a hand-rolled
+**v0.13.0 — the cage and the oracle.** Every numbered horizon of
+[the roadmap](docs/ROADMAP.md) closed: `cage` runs untrusted
+commands against a kernel-enforced read-only world, and the
+**agent** plugin's `??` asks an AI in plain words and stages the
+answer in your prompt — editable, never auto-run. The cockpit: a hand-rolled
 raw-mode line editor with **fish-style autosuggestions** (your
 history, grey, one → away), **syntax highlighting straight from
 the shell's real lexer** (valid commands green, typos red before

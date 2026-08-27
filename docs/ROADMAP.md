@@ -331,7 +331,7 @@ audit's gap list only bashisms psh deliberately refuses remain
 ([[ ]], arrays, process substitution). The guide's hardening
 chapter is now either implemented or obsolete here.
 
-## H10 — the cage and the oracle (opened 2026-08-27)
+## H10 — the cage and the oracle ✅ (v0.13.0; opened 2026-08-27)
 Triage of the agent suggestion pile, salt applied. The rule that
 sorted it: AI belongs in omp plugins calling EXTERNAL tools (the
 C core keeps its libc-only vow — an AI API needs TLS and TLS
