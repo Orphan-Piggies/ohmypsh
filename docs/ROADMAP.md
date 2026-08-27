@@ -331,6 +331,40 @@ audit's gap list only bashisms psh deliberately refuses remain
 ([[ ]], arrays, process substitution). The guide's hardening
 chapter is now either implemented or obsolete here.
 
+## H10 — the cage and the oracle (opened 2026-08-27)
+Triage of the agent suggestion pile, salt applied. The rule that
+sorted it: AI belongs in omp plugins calling EXTERNAL tools (the
+C core keeps its libc-only vow — an AI API needs TLS and TLS
+needs a library); visuals split between already-shipped (roast),
+the terminal emulator's job, and one small C enabler.
+- [ ] H10.1 🔒 cage — the armory's sandbox: `cage ./untested.psh`
+      runs a command with the filesystem read-only except a
+      scratch dir, via Landlock (pure syscalls, zero deps) with a
+      namespaces/unshare fallback for pre-Landlock kernels. Run
+      the sketchy thing FIRST, read what it tried to touch, then
+      let it loose. The one suggestion bash doesn't ship.
+- [ ] H10.2 the ?? plugin + its C enabler. Enabler first: the
+      editor learns to PRELOAD its next line from the shell
+      (zsh's print -z; spelling TBD — likely a psh_editor_preload
+      hook or $PSH_PRELOAD, consumed once). Then omp grows ??:
+      `?? find big videos changed last week` gathers context the
+      hooks already know (cwd, branch, $?, $PSH_CMD_MS), asks an
+      external AI CLI (claude, llm, whatever $OMP_AI_CMD names),
+      and lands the suggested command IN THE COCKPIT as an
+      editable preview — highlighted by the real lexer, executed
+      only when the human presses Enter. Never auto-run. `oops`
+      rides the same enabler: explain-and-fix the last failure.
+- rejected, with reasons on record: stderr capture for AI context
+  (interposing every child's fd 2 un-ttys their stderr — taxes
+  everything, changes behavior, serves a rare feature); clickable
+  CHILD output (rewriting children's bytes in flight is the
+  terminal emulator's job — kitty and friends already do it; psh's
+  OWN listings may grow OSC 8 links someday, roast already speaks
+  it); semantic history search (an LLM call per query to beat
+  Ctrl-R + z's frecency — thin payoff, park it); inline image
+  previews (a `peek` tool emitting kitty/sixel is possible, but
+  rendering is the terminal's mood, not ours).
+
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
 it runs verbatim — and the payoff shipped the same day:
 omp/plugins/redis.psh, a real client in ~120 lines of pure psh
