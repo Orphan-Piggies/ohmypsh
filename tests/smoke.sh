@@ -474,6 +474,40 @@ else
     printf 'skip redis live round-trip (nothing on 6379)\n'
 fi
 
+# ---- H9.1: ${...} parameter operators ----
+# (patterns passed as printf ARGUMENTS — %% in a format string lies)
+
+out=$(printf '%s\n' 'p=abc.tar.gz; echo ${p%.*} ${p%%.*} ${p#*.} ${p##*.}' | $PSH)
+check "affix strips: % %% # ##" "abc.tar abc tar.gz gz" "$out"
+
+out=$(printf '%s\n' 'x="a b c"; echo "[${x%% *}]" "[${x// /-}]" "[${x/ /_}]"' | $PSH)
+check "patterns with spaces lex as one word; / and // replace" \
+    "[a] [a-b-c] [a_b c]" "$out"
+
+out=$(printf '%s\n' 'x=pistachio; echo ${#x} ${#missing}' | $PSH)
+check "length: bytes, unset is 0" "9 0" "$out"
+
+out=$(printf '%s\n' 'x=abc.tar.gz; e=.gz; echo ${x%$e}' | $PSH)
+check "the operator pattern expands (\$e inside)" "abc.tar" "$out"
+
+out=$(printf '%s\n' 'echo "[${missing%.x}]"' | $PSH)
+check "operators on unset act on empty" "[]" "$out"
+
+out=$(printf '%s\n' 'f() { echo ${10}; }; f 1 2 3 4 5 6 7 8 9 ten' | $PSH)
+check "multi-digit positionals: \${10}" "ten" "$out"
+
+out=$(printf '%s\n' 'x=1; echo "[${x@}]"' | $PSH 2>/dev/null)
+check "unknown form expands empty…" "[]" "$out"
+n=$(printf '%s\n' 'x=1; echo ${x@}' | $PSH 2>&1 >/dev/null | grep -c "bad substitution")
+check "…but complains exactly ONCE on stderr" "1" "$n"
+
+# the audit's companion bug: external commands expanded argv twice,
+# running $( ) substitutions (and their side effects) twice
+: > "$tmp/ticks"
+printf '/bin/echo hi $(echo tick >> %s/ticks) > /dev/null\n' "$tmp" | $PSH
+check "cmdsub in an external command's argv runs ONCE" \
+    "1" "$(grep -c tick "$tmp/ticks")"
+
 # ---- H7.1: numbered fds, dup/close, <>, and ordering ----
 
 out=$(printf 'ls /definitely-missing-xirt 2>&1 | grep -c xirt\n' | $PSH)

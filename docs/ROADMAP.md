@@ -279,12 +279,19 @@ word-splitting, and psh removed the enemy instead of arming against
 it. eval, aliases, backticks and ;;& are banned there and
 unwritable here. What remains is this honest gap list, ranked by
 daily scripting value (all shell-hardening, no bashism-chasing):
-- [ ] H9.1 parameter expansion operators: ${var#pat} ${var##pat}
-      ${var%pat} ${var%%pat} ${var/old/new}, plus ${#var} length —
-      the guide prefers these over sed/grep forks and so do we.
-      Also fixes a real footgun found in the audit: ${x#a} today
-      silently expands to EMPTY (reads as a var named "x#a");
-      unknown ${...} forms must error, not vanish.
+- [x] H9.1 parameter expansion operators: ${var#pat} ${var##pat}
+      ${var%pat} ${var%%pat} (fnmatch patterns, and the pattern
+      itself expands — ${x%$ext} works), ${var/old/new} and
+      ${var//old/new} (LITERAL old, documented psh flavor:
+      predictable beats clever), ${#var} length, ${10}+ multi-digit
+      positionals, braced specials. Unknown ${...} forms now
+      complain loudly instead of silently expanding empty; the
+      lexer learned ${ } is one word even around spaces. Verified
+      byte-identical with bash on a 14-case battery. The audit's
+      companion bug fell too: external commands expanded argv
+      TWICE, running $( ) side effects twice — the builtin-probe
+      expansion now hands its argv to the fork path. And a roast
+      table leak (rows array survived its rows) got the LSan axe.
 - [ ] H9.2 heredocs: << and <<- (tab-stripping), quoted delimiter
       suppresses expansion. Post-H7.1 the lexer sees << as a
       redirect pair — it deserves better.

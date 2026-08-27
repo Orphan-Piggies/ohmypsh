@@ -189,6 +189,17 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                 if (!np)
                     goto need_more;
                 p = np;
+            } else if (*p == '$' && p[1] == '{') {
+                /* ${ ... } is one indivisible chunk of its word even
+                 * around spaces — ${x%% *} is a single token. An
+                 * unclosed ${ means "keep typing", like $( and quotes. */
+                buf[t++] = *p++; /* $ */
+                buf[t++] = *p++; /* { */
+                while (*p && *p != '}')
+                    buf[t++] = *p++;
+                if (!*p)
+                    goto need_more;
+                buf[t++] = *p++; /* } */
             } else if (*p == '\'' || *p == '"') {
                 char quote = *p;
                 buf[t++] = *p++;

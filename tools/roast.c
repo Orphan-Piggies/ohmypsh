@@ -309,7 +309,9 @@ static void table_flush(table *t)
 done:
     for (size_t r = 0; r < t->nrows; r++)
         free(t->rows[r]);
-    t->nrows = 0;
+    free(t->rows);
+    t->rows = NULL;
+    t->nrows = t->cap = 0;
 }
 
 /* ---------------- block structure ---------------- */

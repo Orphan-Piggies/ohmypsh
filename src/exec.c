@@ -488,11 +488,16 @@ static int run_builtin_in_parent(psh_builtin_fn fn, psh_stmt *funcbody,
 
 /*
  * Single-stage fast paths that must NOT fork: pure assignments and
- * builtins. Returns the status, or -1 meaning "use the fork path".
+ * builtins. Returns the status, or -1 meaning "use the fork path" —
+ * and in that case *out_fargv hands the ALREADY-EXPANDED argv to the
+ * caller, because expanding twice would run $( ) substitutions (and
+ * their side effects) twice. Found the hard way: a ${bad@} warning
+ * printed two times for external commands, once per expansion.
  */
-static int try_run_in_parent(const psh_command *c)
+static int try_run_in_parent(const psh_command *c, char ***out_fargv)
 {
     size_t na = count_leading_assignments(c);
+    *out_fargv = NULL;
 
     /* Pure assignment(s), no command, no redirects: set and done. */
     if (na == c->argc && c->argc > 0 && !c->redirs) {
@@ -549,7 +554,7 @@ static int try_run_in_parent(const psh_command *c)
     psh_stmt *funcbody = func_lookup(fargv[0]);
     psh_builtin_fn fn = funcbody ? NULL : psh_find_builtin(fargv[0]);
     if (!fn && !funcbody) {
-        free_strv(fargv);
+        *out_fargv = fargv; /* the fork path takes it, expanded once */
         return -1;
     }
     apply_assignments(c, na, false); /* `A=1 cd /x`: rare, but honor it */
@@ -560,8 +565,9 @@ static int try_run_in_parent(const psh_command *c)
 
 static int run_pipeline(const psh_command *first, bool background)
 {
+    char **preexpanded = NULL;
     if (!background && !first->next) {
-        int status = try_run_in_parent(first);
+        int status = try_run_in_parent(first, &preexpanded);
         if (status >= 0)
             return status;
     }
@@ -579,7 +585,9 @@ static int run_pipeline(const psh_command *first, bool background)
 
     for (const psh_command *c = first; c; c = c->next) {
         size_t na = count_leading_assignments(c);
-        char **fargv = expand_command_argv(c, na);
+        char **fargv = preexpanded ? preexpanded
+                                   : expand_command_argv(c, na);
+        preexpanded = NULL; /* only ever the first (only) stage's */
         if (!fargv) {
             incomplete = true;
             break;

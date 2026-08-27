@@ -21,6 +21,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <fnmatch.h>
 #include <glob.h>
 #include <signal.h>
 #include <stdio.h>
@@ -141,6 +142,193 @@ static const char *cmdsub_end(const char *p)
     return p;
 }
 
+static char *expand_core(const char *raw, xflags *fl);
+
+/* ---------------- H9.1: ${...} parameter operators ---------------- */
+
+/* ${var#pat} ${var##pat} ${var%pat} ${var%%pat}: strip the
+ * shortest/longest matching prefix/suffix. Patterns are fnmatch
+ * globs, as in sh. O(n²) trial matching — a shell word, not a
+ * genome. */
+static void strip_affix(const char *val, const char *pat, bool suffix,
+                        bool longest, sbuf *b)
+{
+    size_t n = strlen(val);
+    long hit = -1;
+    if (!suffix) {
+        for (size_t i = 0; i <= n; i++) {
+            char *pre = strndup(val, i);
+            bool m = pre && fnmatch(pat, pre, 0) == 0;
+            free(pre);
+            if (m) {
+                hit = (long)i;
+                if (!longest)
+                    break;
+            }
+        }
+        sb_puts(b, hit >= 0 ? val + hit : val);
+        return;
+    }
+    /* suffix: shortest = latest start index, longest = earliest */
+    for (size_t i = 0; i <= n; i++) {
+        size_t idx = longest ? i : n - i;
+        if (fnmatch(pat, val + idx, 0) == 0) {
+            hit = (long)idx;
+            break;
+        }
+    }
+    if (hit < 0) {
+        sb_puts(b, val);
+        return;
+    }
+    for (long i = 0; i < hit; i++)
+        sb_putc(b, val[i]);
+}
+
+/* ${var/old/new} (first) and ${var//old/new} (all). psh flavor,
+ * documented: old is a LITERAL string, not a pattern — predictable
+ * beats clever in the one operator people reach for daily. */
+static void replace_lit(const char *val, const char *old,
+                        const char *neu, bool all, sbuf *b)
+{
+    if (!*old) {
+        sb_puts(b, val);
+        return;
+    }
+    const char *p = val;
+    const char *hit;
+    while ((hit = strstr(p, old))) {
+        while (p < hit)
+            sb_putc(b, *p++);
+        sb_puts(b, neu);
+        p += strlen(old);
+        if (!all)
+            break;
+    }
+    sb_puts(b, p);
+}
+
+/* The inside of a ${ ... }: name, ${#name}, multi-digit positionals,
+ * braced specials, and the operators. Unknown forms COMPLAIN — the
+ * Google audit caught ${x#a} silently expanding to empty (it read as
+ * a variable named "x#a"); silence was the bug. */
+static void expand_braced(const char *content, sbuf *b)
+{
+    char num[32];
+
+    /* braced specials, same meanings as their bare forms */
+    if (content[1] == '\0') {
+        switch (content[0]) {
+        case '?':
+            snprintf(num, sizeof num, "%d", psh_last_status);
+            sb_puts(b, num);
+            return;
+        case '$':
+            snprintf(num, sizeof num, "%d", (int)getpid());
+            sb_puts(b, num);
+            return;
+        case '#':
+            snprintf(num, sizeof num, "%zu", psh_script_argc);
+            sb_puts(b, num);
+            return;
+        case '@':
+            for (size_t i = 0; i < psh_script_argc; i++) {
+                sb_puts(b, psh_script_args[i]);
+                if (i + 1 < psh_script_argc)
+                    sb_putc(b, ' ');
+            }
+            return;
+        }
+    }
+
+    /* ${10}: multi-digit positionals, at last */
+    bool alldigits = true;
+    for (const char *q = content; *q; q++)
+        if (!isdigit((unsigned char)*q))
+            alldigits = false;
+    if (alldigits && *content) {
+        long idx = strtol(content, NULL, 10);
+        if (idx == 0)
+            sb_puts(b, psh_arg0 ? psh_arg0 : "psh");
+        else if ((size_t)idx <= psh_script_argc)
+            sb_puts(b, psh_script_args[idx - 1]);
+        return;
+    }
+
+    /* ${#name}: length in bytes (0 when unset) */
+    if (content[0] == '#') {
+        const char *nm = content + 1;
+        bool ok = isalpha((unsigned char)nm[0]) || nm[0] == '_';
+        for (const char *q = nm + 1; ok && *q; q++)
+            ok = isalnum((unsigned char)*q) || *q == '_';
+        if (ok) {
+            const char *val = psh_var_get(nm);
+            snprintf(num, sizeof num, "%zu", val ? strlen(val) : 0);
+            sb_puts(b, num);
+            return;
+        }
+        fprintf(stderr, "psh: ${%s}: bad substitution\n", content);
+        return;
+    }
+
+    /* a NAME, then maybe an operator */
+    size_t i = 0;
+    if (isalpha((unsigned char)content[0]) || content[0] == '_') {
+        i = 1;
+        while (isalnum((unsigned char)content[i]) || content[i] == '_')
+            i++;
+    }
+    if (i == 0) {
+        fprintf(stderr, "psh: ${%s}: bad substitution\n", content);
+        return;
+    }
+    char name[256];
+    size_t nn = i < sizeof name ? i : sizeof name - 1;
+    memcpy(name, content, nn);
+    name[nn] = '\0';
+    const char *rest = content + i;
+    const char *val = psh_var_get(name);
+
+    if (!*rest) { /* plain ${NAME} */
+        if (val)
+            sb_puts(b, val);
+        return;
+    }
+    if (!val)
+        val = ""; /* operators on unset act on the empty string */
+
+    if (*rest == '#' || *rest == '%') {
+        bool suffix = (*rest == '%');
+        bool longest = rest[1] == *rest;
+        const char *rawpat = rest + (longest ? 2 : 1);
+        xflags fl;
+        char *pat = expand_core(rawpat, &fl); /* ${x%$ext} works */
+        if (pat) {
+            strip_affix(val, pat, suffix, longest, b);
+            free(pat);
+        }
+        return;
+    }
+    if (*rest == '/') {
+        bool all = rest[1] == '/';
+        const char *from = rest + (all ? 2 : 1);
+        const char *sep = strchr(from, '/');
+        char *rawold = sep ? strndup(from, (size_t)(sep - from))
+                           : strdup(from);
+        const char *rawnew = sep ? sep + 1 : "";
+        xflags fl;
+        char *old = rawold ? expand_core(rawold, &fl) : NULL;
+        char *neu = expand_core(rawnew, &fl);
+        if (old && neu)
+            replace_lit(val, old, neu, all, b);
+        free(rawold);
+        free(old);
+        free(neu);
+        return;
+    }
+    fprintf(stderr, "psh: ${%s}: bad substitution\n", content);
+}
+
 /*
  * Expand one $-form. p points just AFTER the '$'. Appends the value
  * and returns where scanning should continue. A '$' that starts
@@ -214,37 +402,40 @@ static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
         return p + 1;
     }
 
-    const char *start = p;
-    const char *end;
-    bool braced = (*p == '{');
-    if (braced) {
-        start = p + 1;
-        end = strchr(start, '}');
+    if (*p == '{') { /* ${...}: names, specials, and the H9.1 ops */
+        const char *start = p + 1;
+        const char *end = strchr(start, '}');
         if (!end || end == start) {
             sb_putc(b, '$');
             return p;
         }
-    } else {
-        if (!isalpha((unsigned char)*p) && *p != '_') {
-            sb_putc(b, '$');
-            return p;
+        char *content = strndup(start, (size_t)(end - start));
+        if (content) {
+            expand_braced(content, b);
+            free(content);
         }
-        end = p;
-        while (isalnum((unsigned char)*end) || *end == '_')
-            end++;
+        return end + 1;
     }
 
+    if (!isalpha((unsigned char)*p) && *p != '_') {
+        sb_putc(b, '$');
+        return p;
+    }
+    const char *end = p;
+    while (isalnum((unsigned char)*end) || *end == '_')
+        end++;
+
     char name[256];
-    size_t n = (size_t)(end - start);
+    size_t n = (size_t)(end - p);
     if (n >= sizeof name)
         n = sizeof name - 1;
-    memcpy(name, start, n);
+    memcpy(name, p, n);
     name[n] = '\0';
 
     const char *val = psh_var_get(name); /* locals → shell → environ */
     if (val)
         sb_puts(b, val);
-    return braced ? end + 1 : end;
+    return end;
 }
 
 /* Steps 1–3 and 6: everything except globbing and splitting. */
