@@ -130,6 +130,24 @@ roast docs/ROADMAP.md    # checkboxes look like checkboxes
 
 Reading is roast's job; copying source is salt's.
 
+## 🔒 cage
+
+The armory's sandbox. `cage ./sketchy-install.psh` runs anything
+against a **read-only filesystem** — kernel-enforced via Landlock,
+unprivileged, zero dependencies — with writes allowed only in a
+fresh scratch dir (`$CAGE_DIR`, kept afterwards so you can inspect
+what it tried to build), any `-w DIR` you grant, and `/dev/null` +
+`/dev/tty`. Denied writes hit the script as plain `EACCES`, so its
+own error messages name every blocked path. Run the sketchy thing
+first, read the damage report, then let it loose. On kernels
+without Landlock, cage **refuses** rather than silently running
+uncaged.
+
+```sh
+cage ./curl-piped-installer.sh     # what does it REALLY touch?
+cage -w build make                 # build allowed, nothing else
+```
+
 ## Build & run
 
 ```sh
@@ -160,7 +178,8 @@ src/builtins.c   cd, exit, pwd, help, …
 src/pistachio.c  🫛 easter pistachios live here, and only here
 tools/salt.c     🧂 salt: cat with colors, faithful to the bytes
 tools/roast.c    🔥 roast: Markdown rendered for reading
-tools/hl.h       the shared highlight engine both of them use
+tools/cage.c     🔒 cage: run a command against a read-only world
+tools/hl.h       the shared highlight engine salt and roast use
 omp/             oh-my-psh: themes/, plugins/, install.psh — in psh
 docs/ROADMAP.md  where this is going
 extras/lore/     the sacred founding documents (oh-my-pistachio era)

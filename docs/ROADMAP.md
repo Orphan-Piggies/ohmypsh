@@ -337,12 +337,17 @@ sorted it: AI belongs in omp plugins calling EXTERNAL tools (the
 C core keeps its libc-only vow — an AI API needs TLS and TLS
 needs a library); visuals split between already-shipped (roast),
 the terminal emulator's job, and one small C enabler.
-- [ ] H10.1 🔒 cage — the armory's sandbox: `cage ./untested.psh`
-      runs a command with the filesystem read-only except a
-      scratch dir, via Landlock (pure syscalls, zero deps) with a
-      namespaces/unshare fallback for pre-Landlock kernels. Run
-      the sketchy thing FIRST, read what it tried to touch, then
-      let it loose. The one suggestion bash doesn't ship.
+- [x] H10.1 🔒 cage — the armory's sandbox: `cage CMD` runs
+      anything against a kernel-enforced read-only world
+      (Landlock, pure syscalls, zero deps, no setuid). Writes
+      live only in a KEPT scratch dir ($CAGE_DIR and $TMPDIR for
+      the child), -w gates, and /dev/null + /dev/tty; denials
+      reach the child as plain EACCES so its own errors name
+      every blocked path; the restriction is inherited and
+      unsheddable. Design change from the plan: the unshare
+      fallback was DROPPED — on kernels without Landlock cage
+      refuses with 125, because a sandbox that silently isn't
+      one is worse than none. Proven by caging psh itself.
 - [ ] H10.2 the ?? plugin + its C enabler. Enabler first: the
       editor learns to PRELOAD its next line from the shell
       (zsh's print -z; spelling TBD — likely a psh_editor_preload

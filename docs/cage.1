@@ -1,0 +1,64 @@
+.TH CAGE 1 "2026" "cage" "User Commands"
+.SH NAME
+cage \- run a command against a read-only world
+.SH SYNOPSIS
+.B cage
+.RB [ \-w
+.IR DIR ]...
+.RB [ \-q ]
+.I CMD
+.RI [ ARGS ...]
+.SH DESCRIPTION
+.B cage
+runs a command with the entire filesystem read-only, enforced by
+the kernel via Landlock \- unprivileged, no setuid, no containers,
+no dependencies. Run the sketchy script FIRST, read what it tried
+to do, then decide.
+.PP
+Writes are allowed only beneath: a fresh scratch directory
+(exported to the child as
+.B $CAGE_DIR
+and
+.BR $TMPDIR ,
+so well-behaved tools aim there by themselves), each
+.B \-w
+directory, and
+.B /dev/null
++
+.B /dev/tty
+(scripts breathe through those). Reading and executing stay open
+everywhere \- cage guards your files; it is not a secrecy tool.
+Denied writes reach the child as ordinary EACCES, so its own error
+messages name every blocked path. The scratch directory is KEPT
+after the run \- inspecting what the caged thing built is the
+point.
+.PP
+Already-open file descriptors (your terminal) keep working:
+Landlock governs
+.BR open (2),
+not writes on inherited descriptors. The restriction is inherited
+by every descendant process and cannot be shed.
+.SH OPTIONS
+.TP
+.BI \-w " DIR"
+Also allow writes beneath
+.IR DIR .
+Repeatable.
+.TP
+.B \-q
+No banner.
+.SH EXIT STATUS
+The command's own status (128+n if killed by signal n); 127 if the
+command was not found, 126 if it would not run; 125 if the cage
+itself cannot be built \- including on kernels without Landlock
+(pre-5.13, or the LSM disabled): cage REFUSES rather than run
+uncaged, because a sandbox that silently is not one is worse than
+none. 2 for usage errors.
+.SH SEE ALSO
+.BR psh (1),
+.BR salt (1),
+.BR roast (1),
+.BR landlock (7)
+.SH LORE
+The pistachio has one of the hardest shells in the world. Now it
+lends one out. Part of the psh armory. \[u1F512]

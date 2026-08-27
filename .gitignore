@@ -5,3 +5,5 @@ salt
 salt-asan
 roast
 roast-asan
+cage
+cage-asan
