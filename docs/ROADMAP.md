@@ -242,4 +242,9 @@ syntax we need anyway. Staged so every rung is useful on its own:
       as two exact replies.
 
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
-it runs verbatim; the omp redis plugin is now pure-psh territory.
+it runs verbatim — and the payoff shipped the same day:
+omp/plugins/redis.psh, a real client in ~120 lines of pure psh
+(rping/rget/rset/rdel/rincr/rkeys/rcmd/rmon + a silent-probe ⛁
+prompt segment), verified live against a containerized redis 7.
+Lesson learned en route: case patterns quote-strip before fnmatch,
+so a literal star is spelled [*].

@@ -53,7 +53,9 @@ git branch with ✗ dirty marker and ↑↓ arrows, red failure status)
 and a fleet of plugins: **python** (venvs auto-activate when you cd
 into a project — never type `source .venv/bin/activate` again),
 **git**, **django**, **flask**, **rails**, **docker**, **npm**,
-**basics** (`ll`, `la`, `mkcd`), and **shell-shock**, which — as the
+**basics** (`ll`, `la`, `mkcd`), **redis** (`rget`/`rset`/`rmon`, a
+real client over `exec 9<>/dev/tcp` — pure psh, no redis-cli), and
+**shell-shock**, which — as the
 founding documents foretold — goes *XIRT!* when a command fails.
 Drive it with `omp list`, `omp enable <plugin>`, `omp theme <t>`.
 Plugins register on precmd/chpwd hooks; writing your own is ~20

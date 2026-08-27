@@ -1,0 +1,129 @@
+# redis — the wire, made friendly. 100% psh, 0% redis-cli.
+#
+# Rides the H7 machinery: exec 9<>/dev/tcp opens the socket, echo >&9
+# speaks inline RESP, read -r takes replies one line at a time (byte
+# reads — nothing gulped), and the trailing \r is already stripped by
+# the shell. Every command opens its own connection and hangs up:
+# no stale fds, no half-read replies haunting the next call.
+#
+#   rping                     is anyone there? (PONG)
+#   rget KEY                  value, or silence + status 1 on nil
+#   rset KEY VALUE            quote the value if it has spaces
+#   rdel KEY / rincr KEY      the obvious
+#   rkeys [PATTERN]           list keys (default *)
+#   rcmd ANY WORDS            raw inline command, decoded reply
+#   rmon                      live MONITOR stream; Ctrl-C hangs up
+#
+# $OMP_REDIS_HOST / $OMP_REDIS_PORT pick the server (127.0.0.1:6379).
+# fd 9 is the wire, fd 8 is scratch — leave them to the plugin.
+
+if [ "$OMP_REDIS_HOST" = "" ]; then
+    OMP_REDIS_HOST=127.0.0.1
+fi
+if [ "$OMP_REDIS_PORT" = "" ]; then
+    OMP_REDIS_PORT=6379
+fi
+
+# Send one inline command, decode ONE reply to stdout, hang up.
+# Bulk and simple replies print bare (so v=$(rget k) just works);
+# server errors go to stderr; nil is silence with status 1.
+__omp_redis_cmd() {
+    local hdr val n i
+    if exec 9<> /dev/tcp/$OMP_REDIS_HOST/$OMP_REDIS_PORT; then
+        true
+    else
+        return 1
+    fi
+    echo "$@" >&9
+    read -r hdr <&9
+    case $hdr in
+        '$-1')                       # nil
+            exec 9>&-
+            return 1
+            ;;
+        '$'*)                        # bulk: the value is next
+            read -r val <&9
+            echo "$val"
+            exec 9>&-
+            ;;
+        [*]*)                        # array of N bulks (rkeys) —
+                                     # [*] is fnmatch for a literal
+                                     # star ('*' would quote-strip
+                                     # into a wildcard)
+            n=$(echo $hdr | cut -c2-)
+            i=0
+            while [ $i -lt $n ]; do
+                read -r val <&9
+                case $val in
+                    '$-1') echo "(nil)" ;;
+                    '$'*)  read -r val <&9; echo "$val" ;;
+                    *)     echo "$val" ;;
+                esac
+                i=$((i + 1))
+            done
+            exec 9>&-
+            ;;
+        -*)                          # -ERR: the server is displeased
+            echo "redis: $hdr" >&2
+            exec 9>&-
+            return 1
+            ;;
+        *)                           # +simple or :integer — de-sigiled
+            echo $hdr | cut -c2-
+            exec 9>&-
+            ;;
+    esac
+}
+
+rping()  { __omp_redis_cmd PING; }
+rget()   { __omp_redis_cmd GET "$1"; }
+rdel()   { __omp_redis_cmd DEL "$1"; }
+rincr()  { __omp_redis_cmd INCR "$1"; }
+rcmd()   { __omp_redis_cmd "$@"; }
+
+# Inline RESP takes "double quotes" around a value with spaces; psh
+# never splits $2, so wrapping it is plain concatenation.
+rset() { __omp_redis_cmd SET "$1" '"'$2'"'; }
+
+rkeys() {
+    if [ "$1" = "" ]; then
+        __omp_redis_cmd KEYS "*"
+    else
+        __omp_redis_cmd KEYS "$1"
+    fi
+}
+
+# The live wire: everything the server does, as it does it.
+rmon() {
+    local line
+    if exec 9<> /dev/tcp/$OMP_REDIS_HOST/$OMP_REDIS_PORT; then
+        true
+    else
+        return 1
+    fi
+    echo MONITOR >&9
+    while read -r line <&9; do
+        echo "$line"
+    done
+    exec 9>&-
+}
+
+# ⛁ segment for themes that want it (opt-in: add
+# $(__omp_redis_prompt) to PSH_PROMPT). Probes with a real PING,
+# silently: stderr detours through fd 8 for the connect. Shown only
+# when a server answers — redis red, naturally.
+__omp_redis_prompt() {
+    local pong
+    exec 8>&2 2> /dev/null
+    if exec 9<> /dev/tcp/$OMP_REDIS_HOST/$OMP_REDIS_PORT; then
+        exec 2>&8 8>&-
+        echo PING >&9
+        read -r pong <&9
+        exec 9>&-
+        if [ "$pong" = "+PONG" ]; then
+            echo " \e[31m⛁\e[0m"
+        fi
+    else
+        exec 2>&8 8>&-
+    fi
+}

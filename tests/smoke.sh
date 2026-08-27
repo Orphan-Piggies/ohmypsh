@@ -456,6 +456,24 @@ check "duration formats minutes" "1m23s" "$out"
 out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=duration\nsource $OMP_DIR/omp.psh\nPSH_CMD_MS=900\n__omp_duration_prompt\necho quiet=$?\n' "$OMPD" | $PSH)
 check "duration stays quiet under the threshold" "quiet=0" "$out"
 
+# ---- omp redis plugin (pure psh on the H7 wire) ----
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=redis\nsource $OMP_DIR/omp.psh\nOMP_REDIS_PORT=1\nrping\necho down=$?\n' "$OMPD" | $PSH 2>/dev/null)
+check "redis plugin: rping with no server fails politely" "down=1" "$out"
+
+out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=redis\nsource $OMP_DIR/omp.psh\nOMP_REDIS_PORT=1\n__omp_redis_prompt\necho quiet=$?\necho err-ok >&2\n' "$OMPD" | $PSH 2>&1)
+check "redis plugin: prompt segment is silent when down, stderr intact" "quiet=0
+err-ok" "$out"
+
+# live tests, only when something PONGs on the default port
+if printf 'OMP_DIR=%s\nOMP_PLUGINS=redis\nsource $OMP_DIR/omp.psh\nrping\n' "$OMPD" | $PSH 2>/dev/null | grep -q PONG; then
+    out=$(printf 'OMP_DIR=%s\nOMP_PLUGINS=redis\nsource $OMP_DIR/omp.psh\nrset __omp_smoke "two words" > /dev/null\nrget __omp_smoke\nrdel __omp_smoke > /dev/null\nrget __omp_smoke\necho nil=$?\n' "$OMPD" | $PSH 2>/dev/null)
+    check "redis plugin: set/get/del round-trip (live server)" "two words
+nil=1" "$out"
+else
+    printf 'skip redis live round-trip (nothing on 6379)\n'
+fi
+
 # ---- H7.1: numbered fds, dup/close, <>, and ordering ----
 
 out=$(printf 'ls /definitely-missing-xirt 2>&1 | grep -c xirt\n' | $PSH)

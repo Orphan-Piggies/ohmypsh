@@ -19,6 +19,7 @@ __omp_git_prompt() { true; }
 __omp_venv_prompt() { true; }
 __omp_node_prompt() { true; }
 __omp_duration_prompt() { true; }
+__omp_redis_prompt() { true; }
 
 # Red [status] segment when the last command failed. Capture $? FIRST —
 # the test command itself would overwrite it.
