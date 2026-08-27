@@ -47,6 +47,7 @@ struct psh_job {
     pid_t pgid;    /* process group = pid of the first child */
     char *cmdline; /* what to show in `jobs` */
     pid_t *pids;
+    int *statuses; /* per-stage exits, parallel to pids (H9.3) */
     size_t npids, cap, ndone;
     jstate state;
     int last_status; /* exit status of the LAST pid = the job's status */
@@ -89,6 +90,7 @@ static void job_remove(psh_job *j)
         if (*it == j) {
             *it = j->next;
             free(j->pids);
+            free(j->statuses);
             free(j->cmdline);
             free(j);
             return;
@@ -109,9 +111,14 @@ void psh_job_add_pid(psh_job *j, pid_t pid)
         pid_t *grown = realloc(j->pids, cap * sizeof *grown);
         if (!grown)
             return;
-        j->pids = grown;
+        j->pids = grown; /* commit each grow as it lands */
+        int *sgrown = realloc(j->statuses, cap * sizeof *sgrown);
+        if (!sgrown)
+            return; /* cap unchanged: we just retry next time */
+        j->statuses = sgrown;
         j->cap = cap;
     }
+    j->statuses[j->npids] = 0;
     j->pids[j->npids++] = pid;
 }
 
@@ -139,10 +146,11 @@ static void mark_pid(pid_t pid, int wstatus)
             j->ndone++;
             if (WIFSIGNALED(wstatus) && WTERMSIG(wstatus) == SIGINT)
                 j->saw_sigint = true;
+            j->statuses[i] = WIFEXITED(wstatus)
+                                 ? WEXITSTATUS(wstatus)
+                                 : 128 + WTERMSIG(wstatus);
             if (i == j->npids - 1)
-                j->last_status = WIFEXITED(wstatus)
-                                     ? WEXITSTATUS(wstatus)
-                                     : 128 + WTERMSIG(wstatus);
+                j->last_status = j->statuses[i];
             if (j->ndone == j->npids)
                 j->state = J_DONE;
             return;
@@ -241,6 +249,17 @@ void psh_job_child_setup(pid_t pgid, bool foreground)
 
 /* ---------------- foreground / background ---------------- */
 
+/* The last finished foreground pipeline's per-stage statuses. */
+#define PIPE_SNAP_MAX 64
+static int pipe_snap[PIPE_SNAP_MAX];
+static size_t pipe_snap_n;
+
+size_t psh_job_pipe_statuses(const int **out)
+{
+    *out = pipe_snap;
+    return pipe_snap_n;
+}
+
 int psh_job_foreground(psh_job *j, bool cont)
 {
     j->state = J_RUNNING;
@@ -272,6 +291,8 @@ int psh_job_foreground(psh_job *j, bool cont)
     int status;
     if (j->state == J_STOPPED) {
         status = 128 + j->stopsig; /* bash convention for a stop */
+        pipe_snap[0] = status; /* keep the snapshot THIS pipeline's */
+        pipe_snap_n = 1;
         if (psh_job_control)
             j->has_tmodes = (tcgetattr(TTY, &j->tmodes) == 0);
         printf("\n[%d]+  Stopped\t%s\n", j->id, j->cmdline);
@@ -281,6 +302,11 @@ int psh_job_foreground(psh_job *j, bool cont)
         if (j->saw_sigint)
             fputc('\n', stdout); /* land the prompt on a fresh line */
         status = j->last_status;
+        /* Snapshot per-stage statuses before the job dissolves —
+         * exec.c turns them into $PIPESTATUS and pipefail (H9.3). */
+        pipe_snap_n = j->npids < PIPE_SNAP_MAX ? j->npids : PIPE_SNAP_MAX;
+        for (size_t i = 0; i < pipe_snap_n; i++)
+            pipe_snap[i] = j->statuses[i];
         job_remove(j);
     }
 

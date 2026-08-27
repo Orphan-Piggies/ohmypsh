@@ -243,13 +243,21 @@ static psh_command *parse_simple(P *p)
         } else if (p->cur->type == TOK_REDIR) {
             psh_redir_kind kind = p->cur->rd_kind;
             int fd = p->cur->rd_fd;
-            advance(p);
-            if (!p->cur || p->cur->type != TOK_WORD) {
-                fail_or_more(p, "expected a word after redirect");
-                goto bad;
+            bool heredoc = kind == RD_HEREDOC || kind == RD_HEREDOC_RAW;
+            /* A heredoc token CARRIES its body; the others are
+             * followed by a target word. */
+            const char *src = heredoc ? (p->cur->text ? p->cur->text : "")
+                                      : NULL;
+            if (!heredoc) {
+                advance(p);
+                if (!p->cur || p->cur->type != TOK_WORD) {
+                    fail_or_more(p, "expected a word after redirect");
+                    goto bad;
+                }
+                src = p->cur->text;
             }
             psh_redir *r = calloc(1, sizeof *r);
-            char *target = strdup(p->cur->text);
+            char *target = strdup(src);
             if (!r || !target) {
                 free(r);
                 free(target);

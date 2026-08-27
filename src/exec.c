@@ -34,6 +34,21 @@
 
 psh_flow_t psh_flow = PSH_FLOW_NONE;
 bool psh_errexit = false;
+bool psh_pipefail = false;
+
+/* $PIPESTATUS: per-stage exits of the last foreground pipeline,
+ * space-joined (psh has no arrays; split it with $( ) like
+ * everything else). Overwritten by every pipeline — copy it FIRST,
+ * as the Google guide rightly nags. */
+static void publish_pipestatus(const int *codes, size_t n)
+{
+    char buf[64 * 12];
+    size_t off = 0;
+    for (size_t i = 0; i < n && off + 13 < sizeof buf; i++)
+        off += (size_t)snprintf(buf + off, sizeof buf - off, "%s%d",
+                                i ? " " : "", codes[i]);
+    psh_var_set("PIPESTATUS", buf);
+}
 
 /* Depth of "tested" contexts (if/while conditions), where a failure
  * is information, not an emergency — set -e must not fire there. */
@@ -354,6 +369,51 @@ static bool is_net_path(const char *w)
 
 static int apply_one_redir(const psh_redir *r)
 {
+    if (r->kind == RD_HEREDOC || r->kind == RD_HEREDOC_RAW) {
+        /* The body sits in target. An unlinked temp file backs the
+         * fd — a pipe would deadlock past its capacity, and a file
+         * is seekable, which `read` appreciates. */
+        char *body = r->kind == RD_HEREDOC
+                         ? psh_expand_heredoc(r->target)
+                         : strdup(r->target);
+        if (!body) {
+            fprintf(stderr, "psh: out of memory\n");
+            return -1;
+        }
+        char tmpl[] = "/tmp/psh-heredoc-XXXXXX";
+        int fd = mkstemp(tmpl);
+        if (fd < 0) {
+            fprintf(stderr, "psh: heredoc: %s\n", strerror(errno));
+            free(body);
+            return -1;
+        }
+        unlink(tmpl);
+        size_t len = strlen(body), off = 0;
+        while (off < len) {
+            ssize_t w = write(fd, body + off, len - off);
+            if (w < 0) {
+                if (errno == EINTR)
+                    continue;
+                fprintf(stderr, "psh: heredoc: %s\n", strerror(errno));
+                free(body);
+                close(fd);
+                return -1;
+            }
+            off += (size_t)w;
+        }
+        free(body);
+        lseek(fd, 0, SEEK_SET);
+        if (fd != r->fd) {
+            if (dup2(fd, r->fd) < 0) {
+                fprintf(stderr, "psh: %d: %s\n", r->fd, strerror(errno));
+                close(fd);
+                return -1;
+            }
+            close(fd);
+        }
+        return 0;
+    }
+
     char *word = psh_expand_word_single(r->target);
     if (!word) {
         fprintf(stderr, "psh: out of memory\n");
@@ -568,8 +628,10 @@ static int run_pipeline(const psh_command *first, bool background)
     char **preexpanded = NULL;
     if (!background && !first->next) {
         int status = try_run_in_parent(first, &preexpanded);
-        if (status >= 0)
+        if (status >= 0) {
+            publish_pipestatus(&status, 1); /* one stage, in-parent */
             return status;
+        }
     }
 
     size_t nstages = 0;
@@ -697,6 +759,13 @@ static int run_pipeline(const psh_command *first, bool background)
         return 0;
     }
     int status = psh_job_foreground(job, false);
+    const int *codes;
+    size_t ncodes = psh_job_pipe_statuses(&codes);
+    publish_pipestatus(codes, ncodes);
+    if (psh_pipefail)
+        for (size_t i = 0; i < ncodes; i++)
+            if (codes[i] != 0)
+                status = codes[i]; /* the RIGHTMOST failure wins */
     return incomplete ? 1 : status;
 }
 

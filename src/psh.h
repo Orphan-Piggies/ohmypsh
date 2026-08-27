@@ -76,6 +76,8 @@ int psh_builtin_test(char **argv);
 
 /* set -e: exit the shell when an untested pipeline fails (exec.c) */
 extern bool psh_errexit;
+/* set -o pipefail: a pipeline's status is its rightmost failure */
+extern bool psh_pipefail;
 
 /* ---------------- tokens (lexer.c) ---------------- */
 
@@ -96,12 +98,14 @@ typedef enum {
 /* How a redirection opens (or rewires) its fd. The dup kinds take a
  * NUMBER (or '-' to close) where the others take a filename. */
 typedef enum {
-    RD_IN,     /* [n]<  file — default fd 0 */
-    RD_OUT,    /* [n]>  file — default fd 1 */
-    RD_APPEND, /* [n]>> file — default fd 1 */
-    RD_RDWR,   /* [n]<> file — default fd 0 */
-    RD_DUPIN,  /* [n]<& m|-  — default fd 0 */
-    RD_DUPOUT, /* [n]>& m|-  — default fd 1 */
+    RD_IN,          /* [n]<  file — default fd 0 */
+    RD_OUT,         /* [n]>  file — default fd 1 */
+    RD_APPEND,      /* [n]>> file — default fd 1 */
+    RD_RDWR,        /* [n]<> file — default fd 0 */
+    RD_DUPIN,       /* [n]<& m|-  — default fd 0 */
+    RD_DUPOUT,      /* [n]>& m|-  — default fd 1 */
+    RD_HEREDOC,     /* [n]<<DELIM  — body in target, $ expands */
+    RD_HEREDOC_RAW, /* [n]<<'DELIM' — body verbatim */
 } psh_redir_kind;
 
 typedef struct psh_token {
@@ -197,6 +201,7 @@ void psh_stmts_free(psh_stmt *s);
 
 char **psh_expand_word(const char *raw, size_t *out_n);
 char *psh_expand_word_single(const char *raw); /* no glob, no split */
+char *psh_expand_heredoc(const char *raw); /* $ expands, quotes literal */
 
 /* ---------------- execution (exec.c) ---------------- */
 
@@ -229,6 +234,7 @@ void psh_job_set_pgid(psh_job *j, pid_t pgid);
 void psh_job_discard(psh_job *j);
 void psh_job_child_setup(pid_t pgid, bool foreground);
 int psh_job_foreground(psh_job *j, bool cont);
+size_t psh_job_pipe_statuses(const int **out); /* last fg pipeline */
 void psh_job_background(psh_job *j);
 void psh_jobs_reap(void);
 void psh_jobs_notify(void);

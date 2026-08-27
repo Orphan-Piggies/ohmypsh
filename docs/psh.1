@@ -38,6 +38,8 @@ Pipelines
 .RB ( a\ |\ b ),
 redirects with optional fd numbers
 .RB ( >\ >>\ <\ <>\ 2>\ 2>&1\ 2>&\- ),
+heredocs
+.RB ( <<EOF ,\ <<\-\ tab-stripped,\ quoted\ delimiter\ =\ verbatim),
 sockets as redirect targets
 .RB ( exec\ 3<>/dev/tcp/HOST/PORT ,
 also
@@ -70,7 +72,7 @@ comments. Interactive input continues across lines when a construct
 is open.
 .SH BUILTINS
 .BR cd ", " exec ", " exit ", " pwd ", " jobs ", " fg ", " bg ", " wait ", "
-.BR test " / " [ ", " type ", " command\ \-v ", " set\ \-e ", "
+.BR test " / " [ ", " type ", " command\ \-v ", " set\ \-e\ /\ \-o\ pipefail ", "
 .BR trap ", " export ", " local ", " unset ", " source " / " . ", "
 .BR read ", " return ", " break ", " continue ", " history ", " help .
 Run

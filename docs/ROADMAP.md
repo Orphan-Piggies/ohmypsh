@@ -292,13 +292,21 @@ daily scripting value (all shell-hardening, no bashism-chasing):
       TWICE, running $( ) side effects twice — the builtin-probe
       expansion now hands its argv to the fork path. And a roast
       table leak (rows array survived its rows) got the LSan axe.
-- [ ] H9.2 heredocs: << and <<- (tab-stripping), quoted delimiter
-      suppresses expansion. Post-H7.1 the lexer sees << as a
-      redirect pair — it deserves better.
-- [ ] H9.3 pipeline forensics: set -o pipefail, and per-stage
-      statuses exposed (spelling TBD — psh has no arrays; likely
-      $PIPESTATUS as a space-joined string, split with $( ) like
-      everything else). The guide MANDATES checking these.
+- [x] H9.2 heredocs: << and <<- (tab-stripping), quoted delimiter
+      keeps the body verbatim, $ / $( ) / $(( )) expand in unquoted
+      bodies (quotes are just characters — a heredoc is already a
+      quote). The lexer queues heredocs per line and drinks their
+      bodies at the newline; an unfinished body is *incomplete —
+      the "  > " prompt, not an error. Bodies ride an unlinked
+      temp file (pipes deadlock past 64K; files can seek, which
+      `read` appreciates). Multiple heredocs per line work.
+- [x] H9.3 pipeline forensics: set -o pipefail (the RIGHTMOST
+      failure wins) and $PIPESTATUS — space-joined per-stage exits
+      (psh has no arrays; split it with $( ) like everything
+      else), refreshed by every foreground pipeline including
+      in-parent builtins and Ctrl-Z stops. jobs.c now records
+      every stage's status, not just the last. Copy it FIRST, as
+      the guide rightly nags.
 - [ ] H9.4 set -u — unset variables error instead of vanishing.
       Pairs naturally with H9.1's unknown-form errors.
 - [ ] H9.5 readonly — constants that fight back.

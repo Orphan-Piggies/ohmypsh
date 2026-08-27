@@ -91,6 +91,15 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
     *err = false;
     *incomplete = false;
     psh_token *head = NULL, *tail = NULL;
+    /* Heredocs seen on the current line, waiting for the newline
+     * that starts their bodies. The body lands in the redir TOKEN's
+     * text field — it is data, not tokens. */
+    struct {
+        psh_token *tok;
+        char *delim;
+        bool tabstrip;
+    } hd[8];
+    size_t nhd = 0;
     /* One token can never be longer than the whole input. */
     char *buf = malloc(strlen(line) + 1);
     if (!buf)
@@ -110,6 +119,57 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                 goto oom;
             lineno++;
             p++;
+            /* The newline opens any pending heredoc bodies: raw
+             * lines, in order, each ending at its delimiter. */
+            for (size_t h = 0; h < nhd; h++) {
+                size_t bcap = 64, blen = 0;
+                char *body = malloc(bcap);
+                if (!body)
+                    goto oom;
+                body[0] = '\0';
+                for (;;) {
+                    if (!*p) { /* input ran out first: keep typing */
+                        free(body);
+                        goto need_more;
+                    }
+                    const char *ls = p;
+                    while (*p && *p != '\n')
+                        p++;
+                    size_t ll = (size_t)(p - ls);
+                    if (*p) {
+                        p++;
+                        lineno++;
+                    }
+                    const char *cmp = ls;
+                    size_t cl = ll;
+                    if (hd[h].tabstrip)
+                        while (cl && *cmp == '\t') {
+                            cmp++;
+                            cl--;
+                        }
+                    if (cl == strlen(hd[h].delim) &&
+                        strncmp(cmp, hd[h].delim, cl) == 0) {
+                        hd[h].tok->text = body;
+                        break;
+                    }
+                    if (blen + cl + 2 > bcap) {
+                        bcap = (blen + cl + 2) * 2;
+                        char *grown = realloc(body, bcap);
+                        if (!grown) {
+                            free(body);
+                            goto oom;
+                        }
+                        body = grown;
+                    }
+                    memcpy(body + blen, cmp, cl);
+                    blen += cl;
+                    body[blen++] = '\n';
+                    body[blen] = '\0';
+                }
+            }
+            for (size_t h = 0; h < nhd; h++)
+                free(hd[h].delim);
+            nhd = 0;
             continue;
         }
 
@@ -132,6 +192,56 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
             const char *q = p;
             while (isdigit((unsigned char)*q))
                 q++;
+            if (*q == '<' && q[1] == '<') {
+                /* [n]<<DELIM or [n]<<-DELIM: emit the redir token
+                 * now; the BODY is collected at the next newline. */
+                bool tabstrip = q[2] == '-';
+                const char *d = q + (tabstrip ? 3 : 2);
+                while (*d == ' ' || *d == '\t')
+                    d++;
+                bool rawdelim = false;
+                char delim[128];
+                size_t dn = 0;
+                if (*d == '\'' || *d == '"') {
+                    char qc = *d++;
+                    rawdelim = true; /* quoted delim: body verbatim */
+                    while (*d && *d != qc && dn + 1 < sizeof delim)
+                        delim[dn++] = *d++;
+                    if (!*d)
+                        goto need_more; /* quote still open */
+                    d++;
+                } else {
+                    while (*d && !isspace((unsigned char)*d) &&
+                           !strchr("|&;<>()'\"", *d) &&
+                           dn + 1 < sizeof delim)
+                        delim[dn++] = *d++;
+                }
+                delim[dn] = '\0';
+                if (dn == 0) {
+                    fprintf(stderr,
+                            "psh: heredoc needs a delimiter after <<\n");
+                    goto bad;
+                }
+                if (nhd >= sizeof hd / sizeof hd[0]) {
+                    fprintf(stderr, "psh: too many heredocs on one line\n");
+                    goto bad;
+                }
+                psh_token *t = tok_append(&head, &tail, TOK_REDIR, NULL,
+                                          lineno, tok_start);
+                if (!t)
+                    goto oom;
+                t->rd_kind = rawdelim ? RD_HEREDOC_RAW : RD_HEREDOC;
+                t->rd_fd = q > p ? (int)strtol(p, NULL, 10) : 0;
+                t->srclen = (size_t)(d - p);
+                hd[nhd].tok = t;
+                hd[nhd].delim = strdup(delim);
+                hd[nhd].tabstrip = tabstrip;
+                if (!hd[nhd].delim)
+                    goto oom;
+                nhd++;
+                p = d;
+                continue;
+            }
             if (*q == '<' || *q == '>') {
                 psh_redir_kind kind;
                 size_t oplen;
@@ -235,17 +345,24 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                 lineno++;
     }
 
+    if (nhd) /* << seen, but its body never started: keep typing */
+        goto need_more;
     free(buf);
     return head;
 
 oom:
     fprintf(stderr, "psh: out of memory\n");
+bad:
+    for (size_t h = 0; h < nhd; h++)
+        free(hd[h].delim);
     free(buf);
     psh_tokens_free(head);
     *err = true;
     return NULL;
 
 need_more:
+    for (size_t h = 0; h < nhd; h++)
+        free(hd[h].delim);
     free(buf);
     psh_tokens_free(head);
     *incomplete = true;

@@ -492,6 +492,25 @@ char *psh_expand_word_single(const char *raw)
     return expand_core(raw, &fl);
 }
 
+/* Heredoc bodies: $ expands ($VAR, ${...}, $( ), $(( ))), but
+ * quotes are ordinary characters — a heredoc is already a quote. */
+char *psh_expand_heredoc(const char *raw)
+{
+    sbuf b = { 0 };
+    xflags fl = { 0 };
+    if (!sb_reserve(&b, strlen(raw)))
+        return NULL;
+    b.s[0] = '\0';
+    const char *p = raw;
+    while (*p) {
+        if (*p == '$')
+            p = expand_dollar(p + 1, &b, &fl);
+        else
+            sb_putc(&b, *p++);
+    }
+    return b.s;
+}
+
 /* Append `word` to the vector, globbing it if eligible. A pattern
  * that matches nothing stays literal (sh's default). */
 static bool add_globbed(char ***v, size_t *n, size_t *cap,

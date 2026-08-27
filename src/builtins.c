@@ -239,7 +239,13 @@ static int bi_set(char **argv)
             psh_errexit = true;
         else if (strcmp(argv[i], "+e") == 0)
             psh_errexit = false;
-        else {
+        else if ((strcmp(argv[i], "-o") == 0 ||
+                  strcmp(argv[i], "+o") == 0) &&
+                 argv[i + 1] &&
+                 strcmp(argv[i + 1], "pipefail") == 0) {
+            psh_pipefail = (argv[i][0] == '-');
+            i++;
+        } else {
             fprintf(stderr, "psh: set: %s: unknown option\n", argv[i]);
             return 2;
         }

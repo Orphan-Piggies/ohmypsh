@@ -508,6 +508,61 @@ printf '/bin/echo hi $(echo tick >> %s/ticks) > /dev/null\n' "$tmp" | $PSH
 check "cmdsub in an external command's argv runs ONCE" \
     "1" "$(grep -c tick "$tmp/ticks")"
 
+# ---- H9.2: heredocs ----
+
+{
+    printf 'GREET=salam\n'
+    printf 'cat <<EOF\n'
+    printf 'says $GREET and $(echo sub) and $(( 40 + 2 ))\n'
+    printf 'EOF\n'
+} > "$tmp/hd1.psh"
+check "heredoc body expands \$ \$( ) \$(( ))" \
+    "says salam and sub and 42" "$($PSH "$tmp/hd1.psh")"
+
+{
+    printf 'GREET=salam\n'
+    printf "cat <<'EOF'\n"
+    printf 'raw $GREET stays\n'
+    printf 'EOF\n'
+} > "$tmp/hd2.psh"
+check "quoted delimiter keeps the body verbatim" \
+    'raw $GREET stays' "$($PSH "$tmp/hd2.psh")"
+
+{
+    printf 'cat <<-END\n'
+    printf '\tindented by tab\n'
+    printf '\tEND\n'
+} > "$tmp/hd3.psh"
+check "<<- strips leading tabs, delimiter too" \
+    "indented by tab" "$($PSH "$tmp/hd3.psh")"
+
+{
+    printf 'wc -l <<X | tr -d " "\none\ntwo\nthree\nX\n'
+} > "$tmp/hd4.psh"
+check "heredoc feeds a pipeline" "3" "$($PSH "$tmp/hd4.psh")"
+
+{
+    printf 'read -r line <<L\nsalam heredoc\nL\necho "[$line]"\n'
+} > "$tmp/hd5.psh"
+check "read drinks from a heredoc" "[salam heredoc]" "$($PSH "$tmp/hd5.psh")"
+
+printf 'cat <<EOF\nnever closed\n' | $PSH 2>/dev/null
+check "unterminated heredoc at EOF is a clean error" "2" "$?"
+
+# ---- H9.3: pipefail and PIPESTATUS ----
+
+out=$(printf '%s\n' 'true | false | true; echo "[$PIPESTATUS] $?"' | $PSH)
+check "PIPESTATUS carries every stage; \$? stays sh-law" "[0 1 0] 0" "$out"
+
+out=$(printf '%s\n' 'set -o pipefail; sh -c "exit 3" | sh -c "exit 5" | true; echo $?' | $PSH)
+check "pipefail: the rightmost failure wins" "5" "$out"
+
+out=$(printf '%s\n' 'set -o pipefail; set +o pipefail; false | true; echo $?' | $PSH)
+check "+o pipefail restores sh-law" "0" "$out"
+
+out=$(printf '%s\n' 'pwd > /dev/null; echo "[$PIPESTATUS]"' | $PSH)
+check "in-parent builtins report a one-stage PIPESTATUS" "[0]" "$out"
+
 # ---- H7.1: numbered fds, dup/close, <>, and ordering ----
 
 out=$(printf 'ls /definitely-missing-xirt 2>&1 | grep -c xirt\n' | $PSH)
