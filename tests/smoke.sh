@@ -563,6 +563,39 @@ check "+o pipefail restores sh-law" "0" "$out"
 out=$(printf '%s\n' 'pwd > /dev/null; echo "[$PIPESTATUS]"' | $PSH)
 check "in-parent builtins report a one-stage PIPESTATUS" "[0]" "$out"
 
+# ---- H9.4/9.5/9.6: set -u, readonly, line continuation ----
+
+out=$(printf '%s\n' 'set -u; echo "[$missing]"; echo after=$?' | $PSH 2>/dev/null)
+check "set -u: unbound variable fails the command" "after=1" "$out"
+
+out=$(printf '%s\n' 'set -u; x=ok; echo $x; set +u; echo "[$gone]"' | $PSH 2>/dev/null)
+check "set -u honors set vars; +u restores the shrug" "ok
+[]" "$out"
+
+out=$(printf '%s\n' 'set -eu; echo $undef; echo unreached' | $PSH 2>/dev/null; echo "x$?")
+check "set -eu: unbound + errexit ends the script" "x1" "$out"
+
+out=$(printf '%s\n' 'readonly C=42; C=43; echo "$C $?"' | $PSH 2>/dev/null)
+check "readonly refuses assignment (status 1)" "42 1" "$out"
+
+out=$(printf '%s\n' 'readonly K=1; unset K; echo "u=$? k=$K"' | $PSH 2>/dev/null)
+check "readonly refuses unset" "u=1 k=1" "$out"
+
+out=$(printf '%s\n' 'readonly R=5; f() { local R=9; }; f; echo "$R"' | $PSH 2>/dev/null)
+check "readonly cannot be shadowed by local" "5" "$out"
+
+out=$(printf '%s\n' 'readonly A=1; readonly' | $PSH)
+check "bare readonly lists the constants" "readonly A=1" "$out"
+
+out=$(printf 'echo one \\\ntwo\n' | $PSH)
+check "backslash-newline joins lines" "one two" "$out"
+
+out=$(printf 'echo "a \\\nb"\n' | $PSH)
+check "continuation vanishes inside double quotes" "a b" "$out"
+
+out=$(printf 'echo lit "\\\\"\n' | $PSH)
+check "plain backslashes stay literal (psh quotes verbatim)" 'lit \\' "$out"
+
 # ---- H7.1: numbered fds, dup/close, <>, and ordering ----
 
 out=$(printf 'ls /definitely-missing-xirt 2>&1 | grep -c xirt\n' | $PSH)

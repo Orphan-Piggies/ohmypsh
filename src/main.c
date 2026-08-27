@@ -253,16 +253,22 @@ static void build_prompt(char *out, size_t outsz)
 }
 
 /* Append `line` plus a newline to the accumulation buffer. */
+/* Append one input line to the accumulator, ending in exactly ONE
+ * newline whether the line arrived with its own (getline) or bare
+ * (the editor). A doubled newline is not cosmetic: it would end a
+ * \<newline> continuation early and pad heredoc bodies with blanks. */
 static bool acc_append(char **acc, const char *line)
 {
     size_t old = *acc ? strlen(*acc) : 0;
-    char *grown = realloc(*acc, old + strlen(line) + 2);
+    size_t ll = strlen(line);
+    while (ll && line[ll - 1] == '\n')
+        ll--;
+    char *grown = realloc(*acc, old + ll + 2);
     if (!grown)
         return false;
-    if (!old)
-        grown[0] = '\0';
-    strcat(grown, line);
-    strcat(grown, "\n");
+    memcpy(grown + old, line, ll);
+    grown[old + ll] = '\n';
+    grown[old + ll + 1] = '\0';
     *acc = grown;
     return true;
 }

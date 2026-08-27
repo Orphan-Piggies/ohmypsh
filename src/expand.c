@@ -144,6 +144,20 @@ static const char *cmdsub_end(const char *p)
 
 static char *expand_core(const char *raw, xflags *fl);
 
+/* set -u (H9.4): a missing variable is an error that FAILS the
+ * whole expansion — the word's command never runs. Reset at the
+ * public entry points, checked on the way out. */
+static bool expand_failed;
+
+static bool unbound(const char *name)
+{
+    if (!psh_nounset)
+        return false;
+    fprintf(stderr, "psh: %s: unbound variable\n", name);
+    expand_failed = true;
+    return true;
+}
+
 /* ---------------- H9.1: ${...} parameter operators ---------------- */
 
 /* ${var#pat} ${var##pat} ${var%pat} ${var%%pat}: strip the
@@ -252,6 +266,8 @@ static void expand_braced(const char *content, sbuf *b)
             sb_puts(b, psh_arg0 ? psh_arg0 : "psh");
         else if ((size_t)idx <= psh_script_argc)
             sb_puts(b, psh_script_args[idx - 1]);
+        else
+            unbound(content);
         return;
     }
 
@@ -263,6 +279,8 @@ static void expand_braced(const char *content, sbuf *b)
             ok = isalnum((unsigned char)*q) || *q == '_';
         if (ok) {
             const char *val = psh_var_get(nm);
+            if (!val && unbound(nm))
+                return;
             snprintf(num, sizeof num, "%zu", val ? strlen(val) : 0);
             sb_puts(b, num);
             return;
@@ -292,10 +310,15 @@ static void expand_braced(const char *content, sbuf *b)
     if (!*rest) { /* plain ${NAME} */
         if (val)
             sb_puts(b, val);
+        else
+            unbound(name);
         return;
     }
-    if (!val)
+    if (!val) {
+        if (unbound(name))
+            return;
         val = ""; /* operators on unset act on the empty string */
+    }
 
     if (*rest == '#' || *rest == '%') {
         bool suffix = (*rest == '%');
@@ -399,6 +422,10 @@ static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
             sb_puts(b, psh_arg0 ? psh_arg0 : "psh");
         else if ((size_t)idx <= psh_script_argc)
             sb_puts(b, psh_script_args[idx - 1]);
+        else {
+            char pn[3] = { '$', *p, 0 };
+            unbound(pn);
+        }
         return p + 1;
     }
 
@@ -435,6 +462,8 @@ static const char *expand_dollar(const char *p, sbuf *b, xflags *fl)
     const char *val = psh_var_get(name); /* locals → shell → environ */
     if (val)
         sb_puts(b, val);
+    else
+        unbound(name);
     return end;
 }
 
@@ -489,7 +518,13 @@ static char *expand_core(const char *raw, xflags *fl)
 char *psh_expand_word_single(const char *raw)
 {
     xflags fl;
-    return expand_core(raw, &fl);
+    expand_failed = false;
+    char *s = expand_core(raw, &fl);
+    if (expand_failed) { /* set -u spoke; the caller must not run */
+        free(s);
+        return NULL;
+    }
+    return s;
 }
 
 /* Heredoc bodies: $ expands ($VAR, ${...}, $( ), $(( ))), but
@@ -498,6 +533,7 @@ char *psh_expand_heredoc(const char *raw)
 {
     sbuf b = { 0 };
     xflags fl = { 0 };
+    expand_failed = false;
     if (!sb_reserve(&b, strlen(raw)))
         return NULL;
     b.s[0] = '\0';
@@ -507,6 +543,10 @@ char *psh_expand_heredoc(const char *raw)
             p = expand_dollar(p + 1, &b, &fl);
         else
             sb_putc(&b, *p++);
+    }
+    if (expand_failed) {
+        free(b.s);
+        return NULL;
     }
     return b.s;
 }
@@ -566,7 +606,12 @@ char **psh_expand_word(const char *raw, size_t *out_n)
     }
 
     xflags fl;
+    expand_failed = false;
     char *s = expand_core(raw, &fl);
+    if (expand_failed) {
+        free(s);
+        return NULL;
+    }
     if (!s)
         return NULL;
 

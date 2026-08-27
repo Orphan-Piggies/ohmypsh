@@ -454,7 +454,8 @@ static bool valid_command(const char *name)
 static size_t tok_srclen(const psh_token *t)
 {
     switch (t->type) {
-    case TOK_WORD: return strlen(t->text);
+    case TOK_WORD: /* srclen covers \<newline> continuations */
+        return t->srclen ? t->srclen : strlen(t->text);
     case TOK_REDIR: return t->srclen; /* IO number + operator */
     case TOK_AND: case TOK_OR: case TOK_DSEMI: return 2;
     default: return 1;

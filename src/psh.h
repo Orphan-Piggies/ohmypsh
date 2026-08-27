@@ -60,10 +60,13 @@ int psh_run_file(const char *path);
 /* Three tiers: function locals → shell vars → environment. Children
  * inherit only the environment; `export` promotes into it. */
 const char *psh_var_get(const char *name); /* NULL if unset anywhere */
-void psh_var_set(const char *name, const char *value);
+bool psh_var_set(const char *name, const char *value); /* false: readonly */
 void psh_var_export(const char *name);
-void psh_var_unset(const char *name);
-void psh_var_make_local(const char *name, const char *value);
+bool psh_var_unset(const char *name);
+bool psh_var_make_local(const char *name, const char *value);
+bool psh_var_make_readonly(const char *name);
+bool psh_var_is_readonly(const char *name);
+void psh_var_readonly_list(void);
 bool psh_vars_in_function(void);
 void psh_vars_push_scope(void); /* called around function bodies */
 void psh_vars_pop_scope(void);
@@ -78,6 +81,8 @@ int psh_builtin_test(char **argv);
 extern bool psh_errexit;
 /* set -o pipefail: a pipeline's status is its rightmost failure */
 extern bool psh_pipefail;
+/* set -u: expanding an unset variable is an error, not a shrug */
+extern bool psh_nounset;
 
 /* ---------------- tokens (lexer.c) ---------------- */
 

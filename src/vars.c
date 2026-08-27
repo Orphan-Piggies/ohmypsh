@@ -52,6 +52,57 @@ typedef struct scope {
 static shellvar *shellvars;
 static scope *scopes;
 
+/* H9.5: constants that fight back. A small registry of names; a
+ * readonly name refuses assignment, unset, and local shadowing. */
+static char **ro_names;
+static size_t nro, ro_cap;
+
+bool psh_var_is_readonly(const char *name)
+{
+    for (size_t i = 0; i < nro; i++)
+        if (strcmp(ro_names[i], name) == 0)
+            return true;
+    return false;
+}
+
+static bool ro_refuse(const char *name)
+{
+    if (!psh_var_is_readonly(name))
+        return false;
+    fprintf(stderr, "psh: %s: readonly variable\n", name);
+    return true;
+}
+
+bool psh_var_make_readonly(const char *name)
+{
+    if (psh_var_is_readonly(name))
+        return true;
+    if (nro == ro_cap) {
+        size_t cap = ro_cap ? ro_cap * 2 : 8;
+        char **grown = realloc(ro_names, cap * sizeof *grown);
+        if (!grown)
+            return false;
+        ro_names = grown;
+        ro_cap = cap;
+    }
+    ro_names[nro] = strdup(name);
+    if (!ro_names[nro])
+        return false;
+    nro++;
+    return true;
+}
+
+void psh_var_readonly_list(void)
+{
+    for (size_t i = 0; i < nro; i++) {
+        const char *v = psh_var_get(ro_names[i]);
+        if (v)
+            printf("readonly %s=%s\n", ro_names[i], v);
+        else
+            printf("readonly %s\n", ro_names[i]);
+    }
+}
+
 static localvar *find_local(const char *name)
 {
     for (scope *s = scopes; s; s = s->next)
@@ -80,21 +131,23 @@ const char *psh_var_get(const char *name)
     return getenv(name);
 }
 
-void psh_var_set(const char *name, const char *value)
+bool psh_var_set(const char *name, const char *value)
 {
+    if (ro_refuse(name))
+        return false;
     localvar *l = find_local(name);
     if (l) { /* assignment inside a function hits the local first */
         free(l->value);
         l->value = strdup(value);
         if (l->sync_env)
             setenv(name, value, 1);
-        return;
+        return true;
     }
     shellvar *v = find_shell(name);
     if (!v) {
         v = calloc(1, sizeof *v);
         if (!v)
-            return;
+            return false;
         v->name = strdup(name);
         /* Inherited environment names (PATH, HOME...) stay exported
          * when assigned; brand-new names start shell-only. */
@@ -106,6 +159,7 @@ void psh_var_set(const char *name, const char *value)
     v->value = strdup(value);
     if (v->exported)
         setenv(name, value, 1);
+    return true;
 }
 
 void psh_var_export(const char *name)
@@ -137,8 +191,10 @@ void psh_var_export(const char *name)
         setenv(name, v->value, 1);
 }
 
-void psh_var_unset(const char *name)
+bool psh_var_unset(const char *name)
 {
+    if (ro_refuse(name))
+        return false;
     /* An innermost local: end it early and restore the environ now
      * (its scope's pop will no longer know about it — consistent). */
     for (scope *s = scopes; s; s = s->next) {
@@ -156,7 +212,7 @@ void psh_var_unset(const char *name)
                 free(v->value);
                 free(v->saved_env);
                 free(v);
-                return;
+                return true;
             }
         }
     }
@@ -171,6 +227,7 @@ void psh_var_unset(const char *name)
         }
     }
     unsetenv(name);
+    return true;
 }
 
 bool psh_vars_in_function(void)
@@ -211,10 +268,12 @@ void psh_vars_pop_scope(void)
     free(s);
 }
 
-void psh_var_make_local(const char *name, const char *value)
+bool psh_var_make_local(const char *name, const char *value)
 {
+    if (ro_refuse(name)) /* a constant cannot be shadowed either */
+        return false;
     if (!scopes)
-        return;
+        return false;
     /* `local X` again in the SAME scope is just assignment. */
     for (localvar *v = scopes->vars; v; v = v->next) {
         if (strcmp(v->name, name) == 0) {
@@ -222,12 +281,12 @@ void psh_var_make_local(const char *name, const char *value)
             v->value = strdup(value ? value : "");
             if (v->sync_env)
                 setenv(name, v->value, 1);
-            return;
+            return true;
         }
     }
     localvar *v = calloc(1, sizeof *v);
     if (!v)
-        return;
+        return false;
     v->name = strdup(name);
     v->value = strdup(value ? value : "");
     const char *env = getenv(name);
@@ -237,4 +296,5 @@ void psh_var_make_local(const char *name, const char *value)
         setenv(name, v->value, 1);
     v->next = scopes->vars;
     scopes->vars = v;
+    return true;
 }

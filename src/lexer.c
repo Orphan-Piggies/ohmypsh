@@ -108,8 +108,23 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
     int lineno = 1;
     const char *p = line;
     while (*p) {
-        while (*p == ' ' || *p == '\t' || *p == '\r')
-            p++;
+        /* Whitespace — and \<newline>, the H9.6 line continuation:
+         * the pair vanishes, the command flows on. A \ that ends
+         * the whole input means "keep typing". */
+        for (;;) {
+            while (*p == ' ' || *p == '\t' || *p == '\r')
+                p++;
+            if (*p == '\\' && p[1] == '\n') {
+                if (!p[2]) /* continuing into the void: more, please */
+                    goto need_more;
+                p += 2;
+                lineno++;
+                continue;
+            }
+            if (*p == '\\' && !p[1])
+                goto need_more;
+            break;
+        }
         if (!*p)
             break;
 
@@ -319,6 +334,10 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                         if (!np)
                             goto need_more;
                         p = np;
+                    } else if (quote == '"' && *p == '\\' &&
+                               p[1] == '\n') {
+                        p += 2; /* \<newline> vanishes in "..." too */
+                        lineno++;
                     } else {
                         buf[t++] = *p++;
                     }
@@ -326,6 +345,13 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
                 if (!*p)
                     goto need_more; /* multi-line string: keep typing */
                 buf[t++] = *p++;    /* keep the closing quote */
+            } else if (*p == '\\' && p[1] == '\n') {
+                if (!p[2])
+                    goto need_more;
+                p += 2; /* the word continues on the next line */
+                lineno++;
+            } else if (*p == '\\' && !p[1]) {
+                goto need_more;
             } else {
                 buf[t++] = *p++;
             }
@@ -338,6 +364,9 @@ psh_token *psh_tokenize(const char *line, bool *err, bool *incomplete)
             free(word);
             goto oom;
         }
+        /* Continuations can make the token SHORTER than its source;
+         * remember the true span for the cockpit's repaint math. */
+        tail->srclen = (size_t)(p - line) - tok_start;
         /* Quotes and $( ) can swallow newlines into a word; keep
          * the line counter honest for the tokens that follow. */
         for (const char *q = word; *q; q++)

@@ -307,14 +307,29 @@ daily scripting value (all shell-hardening, no bashism-chasing):
       in-parent builtins and Ctrl-Z stops. jobs.c now records
       every stage's status, not just the last. Copy it FIRST, as
       the guide rightly nags.
-- [ ] H9.4 set -u — unset variables error instead of vanishing.
-      Pairs naturally with H9.1's unknown-form errors.
-- [ ] H9.5 readonly — constants that fight back.
-- [ ] H9.6 backslash-newline line continuation (the audit's
-      surprise: psh keeps the \ literal today)
+- [x] H9.4 set -u — an unbound variable (named, ${braced}, or a
+      positional past $#) prints "unbound variable" and FAILS the
+      whole expansion; the command never runs. set -eu ends the
+      script. +u restores the shrug. Wired through the expansion
+      layer's new failure channel, which H9.5 shares.
+- [x] H9.5 readonly — constants that fight back: assignment, unset,
+      local shadowing, `read` into, and `for` loop vars all refuse
+      (status 1); bare `readonly` lists them. psh_var_set learned
+      to say no, and every C caller now listens.
+- [x] H9.6 backslash-newline continuation — in the token gap,
+      inside words, inside "..." (verbatim in '...', as sh law
+      demands). A line ending in \ turns into the "  > " prompt.
+      Flushed out a REAL bug en route: the REPL accumulator added
+      its own newline to lines that already had one, which would
+      also have padded stdin-fed heredoc bodies with blanks.
 - [ ] candidates: =~ regex in test/[; local masking warning
       (local v=$(cmd) hides the status — same bug bash has;
       the guide's declare-then-assign rule applies verbatim)
+
+H9 closed 2026-08-27 — opened and shut the same day. Of the
+audit's gap list only bashisms psh deliberately refuses remain
+([[ ]], arrays, process substitution). The guide's hardening
+chapter is now either implemented or obsolete here.
 
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
 it runs verbatim — and the payoff shipped the same day:

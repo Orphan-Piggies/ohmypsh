@@ -35,6 +35,7 @@
 psh_flow_t psh_flow = PSH_FLOW_NONE;
 bool psh_errexit = false;
 bool psh_pipefail = false;
+bool psh_nounset = false;
 
 /* $PIPESTATUS: per-stage exits of the last foreground pipeline,
  * space-joined (psh has no arrays; split it with $( ) like
@@ -194,8 +195,9 @@ static size_t count_leading_assignments(const psh_command *c)
  * assignments go through the variable table; in a forked child about
  * to exec (`A=1 cmd`), straight into the environ — that process's
  * whole world is the environment, and it dies with the variable. */
-static void apply_assignments(const psh_command *c, size_t n, bool to_env)
+static int apply_assignments(const psh_command *c, size_t n, bool to_env)
 {
+    int status = 0;
     for (size_t i = 0; i < n; i++) {
         const char *eq = strchr(c->argv[i], '=');
         char *name = strndup(c->argv[i], (size_t)(eq - c->argv[i]));
@@ -203,12 +205,15 @@ static void apply_assignments(const psh_command *c, size_t n, bool to_env)
         if (name && val) {
             if (to_env)
                 setenv(name, val, 1);
-            else
-                psh_var_set(name, val);
+            else if (!psh_var_set(name, val))
+                status = 1; /* readonly said no */
+        } else {
+            status = 1; /* expansion refused (set -u) or OOM */
         }
         free(name);
         free(val);
     }
+    return status;
 }
 
 /* Expand every argv word after the leading assignments into the final
@@ -415,10 +420,8 @@ static int apply_one_redir(const psh_redir *r)
     }
 
     char *word = psh_expand_word_single(r->target);
-    if (!word) {
-        fprintf(stderr, "psh: out of memory\n");
+    if (!word) /* the expansion layer already said why */
         return -1;
-    }
 
     if (r->kind == RD_DUPIN || r->kind == RD_DUPOUT) {
         /* [n]>&m duplicates, [n]>&- closes. */
@@ -560,10 +563,8 @@ static int try_run_in_parent(const psh_command *c, char ***out_fargv)
     *out_fargv = NULL;
 
     /* Pure assignment(s), no command, no redirects: set and done. */
-    if (na == c->argc && c->argc > 0 && !c->redirs) {
-        apply_assignments(c, na, false);
-        return 0;
-    }
+    if (na == c->argc && c->argc > 0 && !c->redirs)
+        return apply_assignments(c, na, false);
     if (na == c->argc)
         return -1; /* redirect-only (or with redirects): fork path */
 
@@ -880,7 +881,11 @@ static int run_stmt_foreground(psh_stmt *s)
                     stop = true;
                     break;
                 }
-                psh_var_set(s->name, vals[j]);
+                if (!psh_var_set(s->name, vals[j])) {
+                    status = 1; /* a readonly loop var ends the loop */
+                    stop = true;
+                    break;
+                }
                 status = run_stmts(s->body);
                 if (psh_flow == PSH_FLOW_BREAK) {
                     psh_flow = PSH_FLOW_NONE;

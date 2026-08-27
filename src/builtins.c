@@ -87,26 +87,57 @@ static int bi_local(char **argv)
         fprintf(stderr, "psh: local: only meaningful inside a function\n");
         return 1;
     }
+    int status = 0;
     for (size_t i = 1; argv[i]; i++) {
         char *eq = strchr(argv[i], '=');
         if (eq) {
             char *name = strndup(argv[i], (size_t)(eq - argv[i]));
             if (name) {
-                psh_var_make_local(name, eq + 1);
+                if (!psh_var_make_local(name, eq + 1))
+                    status = 1;
                 free(name);
             }
-        } else {
-            psh_var_make_local(argv[i], NULL);
+        } else if (!psh_var_make_local(argv[i], NULL)) {
+            status = 1;
         }
     }
-    return 0;
+    return status;
 }
 
 static int bi_unset(char **argv)
 {
+    int status = 0;
     for (size_t i = 1; argv[i]; i++)
-        psh_var_unset(argv[i]);
-    return 0;
+        if (!psh_var_unset(argv[i]))
+            status = 1;
+    return status;
+}
+
+/* readonly NAME[=value]... — constants that fight back. With no
+ * arguments, lists them. Assignment, unset, and local shadowing
+ * all refuse a readonly name from here on. */
+static int bi_readonly(char **argv)
+{
+    if (!argv[1]) {
+        psh_var_readonly_list();
+        return 0;
+    }
+    int status = 0;
+    for (size_t i = 1; argv[i]; i++) {
+        char *eq = strchr(argv[i], '=');
+        char *name = eq ? strndup(argv[i], (size_t)(eq - argv[i]))
+                        : strdup(argv[i]);
+        if (!name)
+            return 1;
+        if (eq && !psh_var_set(name, eq + 1)) {
+            status = 1; /* already readonly: the value stands */
+        } else if (!psh_var_make_readonly(name)) {
+            fprintf(stderr, "psh: out of memory\n");
+            status = 1;
+        }
+        free(name);
+    }
+    return status;
 }
 
 static int bi_exit(char **argv)
@@ -239,6 +270,12 @@ static int bi_set(char **argv)
             psh_errexit = true;
         else if (strcmp(argv[i], "+e") == 0)
             psh_errexit = false;
+        else if (strcmp(argv[i], "-u") == 0)
+            psh_nounset = true;
+        else if (strcmp(argv[i], "+u") == 0)
+            psh_nounset = false;
+        else if (strcmp(argv[i], "-eu") == 0 || strcmp(argv[i], "-ue") == 0)
+            psh_errexit = psh_nounset = true;
         else if ((strcmp(argv[i], "-o") == 0 ||
                   strcmp(argv[i], "+o") == 0) &&
                  argv[i + 1] &&
@@ -426,7 +463,8 @@ static int bi_read(char **argv)
     buf[len] = '\0';
 
     if (!argv[v + 1]) {
-        psh_var_set(argv[v], buf); /* one name: the line, verbatim */
+        if (!psh_var_set(argv[v], buf)) /* one name: verbatim line */
+            status = 1;
         free(buf);
         return status;
     }
@@ -440,7 +478,8 @@ static int bi_read(char **argv)
             char *end = p + strlen(p);
             while (end > p && (end[-1] == ' ' || end[-1] == '\t'))
                 *--end = '\0';
-            psh_var_set(argv[j], p);
+            if (!psh_var_set(argv[j], p))
+                status = 1;
             break;
         }
         char *field = p;
@@ -448,7 +487,8 @@ static int bi_read(char **argv)
             p++;
         if (*p)
             *p++ = '\0';
-        psh_var_set(argv[j], field);
+        if (!psh_var_set(argv[j], field))
+            status = 1;
     }
     free(buf);
     return status;
@@ -495,6 +535,7 @@ static const struct {
     { "trap",     bi_trap,        "trap 'cmds' EXIT: run commands at exit" },
     { "export",   bi_export,      "make a variable visible to children" },
     { "local",    bi_local,       "function-scoped variable" },
+    { "readonly", bi_readonly,    "constants that fight back (readonly NAME[=v])" },
     { "unset",    bi_unset,       "remove a variable" },
     { "source",   bi_source,      "run a file in THIS shell (also: .)" },
     { ".",        bi_source,      "alias for source" },
