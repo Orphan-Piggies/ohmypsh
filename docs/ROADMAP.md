@@ -271,6 +271,36 @@ shell but stand alone (tools/, built and installed with psh).
       for salt's -l? an omp plugin aliasing cat when interactive?
       salt/roast: honor NO_COLOR? roast --toc?
 
+## H9 — the Google audit (opened 2026-08-27)
+Read the Google Shell Style Guide and held the bag up against it.
+Verdict: a compliant bash script won't run here, but psh obsoletes
+the guide's hardest third — the quoting rituals exist to fight
+word-splitting, and psh removed the enemy instead of arming against
+it. eval, aliases, backticks and ;;& are banned there and
+unwritable here. What remains is this honest gap list, ranked by
+daily scripting value (all shell-hardening, no bashism-chasing):
+- [ ] H9.1 parameter expansion operators: ${var#pat} ${var##pat}
+      ${var%pat} ${var%%pat} ${var/old/new}, plus ${#var} length —
+      the guide prefers these over sed/grep forks and so do we.
+      Also fixes a real footgun found in the audit: ${x#a} today
+      silently expands to EMPTY (reads as a var named "x#a");
+      unknown ${...} forms must error, not vanish.
+- [ ] H9.2 heredocs: << and <<- (tab-stripping), quoted delimiter
+      suppresses expansion. Post-H7.1 the lexer sees << as a
+      redirect pair — it deserves better.
+- [ ] H9.3 pipeline forensics: set -o pipefail, and per-stage
+      statuses exposed (spelling TBD — psh has no arrays; likely
+      $PIPESTATUS as a space-joined string, split with $( ) like
+      everything else). The guide MANDATES checking these.
+- [ ] H9.4 set -u — unset variables error instead of vanishing.
+      Pairs naturally with H9.1's unknown-form errors.
+- [ ] H9.5 readonly — constants that fight back.
+- [ ] H9.6 backslash-newline line continuation (the audit's
+      surprise: psh keeps the \ literal today)
+- [ ] candidates: =~ regex in test/[; local masking warning
+      (local v=$(cmd) hides the status — same bug bash has;
+      the guide's declare-then-assign rule applies verbatim)
+
 H7 closed 2026-08-27, all four rungs. The blog snippet that opened
 it runs verbatim — and the payoff shipped the same day:
 omp/plugins/redis.psh, a real client in ~120 lines of pure psh
