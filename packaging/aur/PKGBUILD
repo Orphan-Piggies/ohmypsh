@@ -15,7 +15,7 @@ optdepends=('ollama: local AI for the ?? oracle plugin'
             'git: branch segment in the omp prompt')
 install=ohmypsh.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('db08fa0c1bcb212081891dafcdf7d42ba64e21d3e1a5788343232c76a51358ab')
+sha256sums=('5d7165d2f700bbc2932ce431c745b58176219673496fa3c577647c7e141fddbf')
 
 build() {
     cd "$pkgname-$pkgver"
