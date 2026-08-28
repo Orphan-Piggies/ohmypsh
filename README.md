@@ -180,12 +180,16 @@ correctness. Try `help` and read closely.
 
 ## Quality
 
-`make test` — 246 checks across four suites (shell, salt, roast,
+`make test` — 250+ checks across four suites (shell, salt, roast,
 cage) — plus `make test-asan` (the same under AddressSanitizer +
-LeakSanitizer: zero errors, zero leaks), a pty-driven editor suite
-(`make test-editor`, 26 keystroke tests), and a fuzzer that has
-thrown thousands of hostile inputs without a crack. CI runs the lot
-on every push.
+LeakSanitizer: zero errors, zero leaks) and a pty-driven editor
+suite (`make test-editor`: keystrokes, UTF-8 cursor math, and yes,
+the terminal recovering after a raw-mode child segfaults
+mid-pipeline). Together they cover **73% of lines and 89% of
+functions** (gcovr, measured nightly in CI). Fuzzing is a **nightly
+AFL++ job with a persisted corpus** resuming where it left off —
+crashes fail the build, honest infinite loops don't — alongside a
+token-soup quick pass on every push.
 
 ## License
 

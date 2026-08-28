@@ -53,6 +53,10 @@ echo cyc-one\n
 echo cyc-two\n
 echo \0033.\n
 echo \0033.\0033.\n
+sh -c 'stty raw -echo; kill -SEGV $$' | cat\n
+echo recovered-after-segv\n
+echo one | sh -c 'kill -SEGV $$' | cat\n
+echo mid-stage-too\n
 PSH_PRELOAD="echo staged-by-preload"\n
 \n
 echo empty-after=[$PSH_PRELOAD]\n
@@ -95,6 +99,9 @@ n=$(printf '%s\n' "$out" | grep -ac '^cyc-one$')
 check "esc+. pressed again cycles back" "$([ "$n" = 2 ] && echo yes)"
 check "PSH_PRELOAD stages the next line" "$(has '^staged-by-preload$')"
 check "preload is consumed exactly once" "$(has '^empty-after=\[\]$')"
+check "terminal survives raw-mode child segfaulting mid-pipeline" \
+    "$(has '^recovered-after-segv$')"
+check "…and a middle-stage segfault too" "$(has '^mid-stage-too$')"
 
 [ "$fails" = 0 ] && printf 'all editor tests passed 🫛\n'
 exit "$fails"

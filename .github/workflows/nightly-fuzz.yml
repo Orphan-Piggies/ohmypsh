@@ -1,0 +1,72 @@
+# 🫛 nightly deep fuzz + coverage — the claims the README makes,
+# earned every night. The corpus persists between runs via the
+# actions cache, so AFL resumes where it left off instead of
+# rediscovering the grammar from scratch.
+name: nightly-fuzz
+on:
+  schedule:
+    - cron: "30 2 * * *"   # 02:30 UTC, while the pistachios sleep
+  workflow_dispatch: {}    # and on demand
+
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install AFL++
+        run: sudo apt-get update && sudo apt-get install -y afl++
+
+      - name: build instrumented psh
+        run: make psh CC=afl-cc CFLAGS="-std=c11 -O2 -D_POSIX_C_SOURCE=200809L"
+
+      - name: restore corpus
+        uses: actions/cache@v4
+        with:
+          path: corpus-out
+          key: afl-corpus-${{ github.run_id }}
+          restore-keys: afl-corpus-
+
+      - name: fuzz for 25 minutes
+        env:
+          AFL_SKIP_CPUFREQ: 1
+          AFL_NO_AFFINITY: 1
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: 1
+        run: |
+          if [ -d corpus-out/default/queue ]; then
+            afl-fuzz -i - -o corpus-out -V 1500 -- ./psh @@ || true
+          else
+            afl-fuzz -i tests/fuzz-seeds -o corpus-out -V 1500 -- ./psh @@ || true
+          fi
+          echo "queue: $(ls corpus-out/default/queue 2>/dev/null | wc -l) inputs"
+
+      - name: crashes are failures (hangs are honest loops)
+        run: |
+          n=$(ls corpus-out/default/crashes 2>/dev/null | grep -c '^id:' || true)
+          echo "crashes: $n"
+          [ "$n" = 0 ]
+
+      - name: keep crashing inputs for the autopsy
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-crashes
+          path: corpus-out/default/crashes
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build with coverage
+        run: make CFLAGS="-std=c11 -g -O0 --coverage -D_POSIX_C_SOURCE=200809L"
+
+      - name: run the suites
+        run: make test
+
+      - name: report line coverage
+        run: |
+          pip install gcovr --quiet
+          gcovr -r . --filter src/ --filter tools/ -s | tail -3

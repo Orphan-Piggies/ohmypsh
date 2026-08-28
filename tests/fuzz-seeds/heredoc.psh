@@ -1,0 +1,6 @@
+cat <<EOF
+body $X here
+EOF
+cat <<-'RAW'
+	literal $X
+	RAW

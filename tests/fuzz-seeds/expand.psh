@@ -1,0 +1,4 @@
+X=5
+echo $X ${X}? $((X+2)) $?
+F="two words"
+echo "$F" ${F/ /_} ${#F}

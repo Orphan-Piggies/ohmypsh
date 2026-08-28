@@ -1,0 +1,3 @@
+if [ 1 -lt 2 ]; then echo lt; fi
+while false; do break; done
+set -u; echo ${nope%x} 2> /dev/null; set +u

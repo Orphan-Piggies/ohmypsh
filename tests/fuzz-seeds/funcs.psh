@@ -1,0 +1,3 @@
+f() { local n=$1; return 3; }
+f one two
+for i in 1 2 3; do case $i in 2) echo two;; *) ;; esac; done

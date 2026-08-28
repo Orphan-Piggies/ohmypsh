@@ -9,3 +9,5 @@ cage
 cage-asan
 ohmypsh_*.deb
 debstage/
+*.gcno
+*.gcda

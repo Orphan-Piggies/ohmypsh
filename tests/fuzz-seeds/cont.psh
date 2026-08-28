@@ -1,0 +1,5 @@
+echo one \
+two
+readonly K=1
+K=2
+echo ${10} "$@"

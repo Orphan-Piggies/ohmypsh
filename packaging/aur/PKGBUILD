@@ -2,7 +2,7 @@
 # psh itself — the AUR name "psh" belongs to another shell, so the
 # package wears the project's full name and installs /usr/bin/psh.
 pkgname=ohmypsh
-pkgver=0.13.3
+pkgver=0.13.4
 pkgrel=1
 pkgdesc="psh, the pistachio shell — with salt, roast and cage"
 arch=('x86_64' 'aarch64')
