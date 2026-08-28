@@ -27,6 +27,18 @@ splits on
 .B newlines only.
 .B for f in $(ls)
 iterates files; spaces in names survive.
+.PP
+Consequently
+.B IFS
+is ignored
+.B everywhere
+\- it neither enables splitting in expansion nor tunes
+.BR read ,
+which splits on blanks (hardcoded) only when given several names.
+Setting IFS changes nothing; there is no partially-honored mode to
+be surprised by. When splitting is genuinely wanted, route it
+through the one gate that splits \- command substitution:
+.B ls $(echo $args | tr \(dq \(dq \(dq\en\(dq)
 .SH OPTIONS
 .TP
 .BI \-c " command"

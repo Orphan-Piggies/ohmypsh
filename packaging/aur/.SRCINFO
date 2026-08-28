@@ -8,6 +8,7 @@ pkgbase = ohmypsh
 	arch = aarch64
 	license = MIT
 	depends = glibc
+	conflicts = psh
 	optdepends = ollama: local AI for the ?? oracle plugin
 	optdepends = git: branch segment in the omp prompt
 	source = ohmypsh-0.13.2.tar.gz::https://github.com/marmeladze/ohmypsh/archive/refs/tags/v0.13.2.tar.gz

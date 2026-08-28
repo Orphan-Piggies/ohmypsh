@@ -1,0 +1,723 @@
+<title>psh Flow Theater</title>
+<!--
+  FLOW THEATER TEMPLATE — copy this file, then:
+  1. Replace <title>, the <h1>, the .sub paragraph, and the <footer>.
+  2. Replace the SCENES array with your system's flows (see SKILL.md for the data model).
+  Everything below the SCENES array (the engine) should not need changes.
+-->
+<style>
+  :root {
+    --bg: #f4f6f5;
+    --surface: #ffffff;
+    --ink: #1e2422;
+    --muted: #5c6763;
+    --border: #d7ddda;
+    --accent: #0e7c66;
+    --stage-bg: #fafbfa;
+    --pkt-data: #0e7c66;
+    --pkt-warn: #c07716;
+    --pkt-ok: #2e9e44;
+    --pkt-err: #c43d3d;
+    --halo: #fafbfa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131817;
+      --surface: #1c2321;
+      --ink: #e7ecea;
+      --muted: #94a09b;
+      --border: #2f3936;
+      --accent: #43bfa2;
+      --stage-bg: #171d1c;
+      --pkt-data: #43bfa2;
+      --pkt-warn: #f0a84b;
+      --pkt-ok: #58c579;
+      --pkt-err: #e06666;
+      --halo: #171d1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131817;
+    --surface: #1c2321;
+    --ink: #e7ecea;
+    --muted: #94a09b;
+    --border: #2f3936;
+    --accent: #43bfa2;
+    --stage-bg: #171d1c;
+    --pkt-data: #43bfa2;
+    --pkt-warn: #f0a84b;
+    --pkt-ok: #58c579;
+    --pkt-err: #e06666;
+    --halo: #171d1c;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 1.4rem clamp(1rem, 3vw, 2.5rem) 3rem;
+  }
+  .wrap { max-width: 76rem; margin: 0 auto; }
+  h1 { font-size: 1.35rem; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 0.2rem; }
+  .sub { color: var(--muted); margin: 0 0 1rem; font-size: 0.9rem; max-width: 60rem; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1rem; }
+  .chips button {
+    font: 600 0.8rem/1 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.42rem 0.75rem;
+    cursor: pointer;
+  }
+  .chips button:hover { color: var(--accent); border-color: var(--accent); }
+  .chips button.current { color: var(--accent); border-color: var(--accent); background: transparent; }
+  .chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .theater {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .theater-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .theater-head h2 { font-size: 1rem; font-weight: 650; margin: 0; flex: 1 1 auto; }
+  .theater-head .where { color: var(--muted); font-size: 0.78rem; }
+
+  .stage-box { background: var(--stage-bg); }
+  .stage-box svg { display: block; width: 100%; height: auto; }
+
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .node rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; rx: 7; }
+  .node.actor rect { stroke: var(--accent); stroke-width: 1.6; }
+  .node.ref rect { stroke-dasharray: 5 4; }
+  .node.ref { cursor: pointer; }
+  .node.ref:hover rect, .node.ref:focus rect { stroke: var(--accent); }
+  .node text { fill: var(--ink); font-size: 12.5px; }
+  .node.ref text { fill: var(--muted); }
+  .node .badge { fill: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .node.active rect { stroke: var(--accent); stroke-width: 2.4; }
+
+  .edge path { stroke: var(--muted); stroke-width: 1.3; fill: none; }
+  .edge.dashed path { stroke-dasharray: 6 5; }
+  .edge text { fill: var(--muted); font-size: 10.5px; paint-order: stroke; stroke: var(--stage-bg); stroke-width: 4px; stroke-linejoin: round; }
+  .edge.active path { stroke: var(--accent); stroke-width: 2.3; }
+  .edge.active text { fill: var(--accent); font-weight: 600; }
+
+  .packet { stroke: var(--stage-bg); stroke-width: 1.5; }
+
+  .deck { padding: 0.85rem 1rem 1rem; border-top: 1px solid var(--border); }
+  .caption {
+    border-left: 3px solid var(--accent);
+    padding: 0.45rem 0.8rem;
+    min-height: 3.2em;
+    font-size: 0.92rem;
+    max-width: 65ch;
+  }
+  .caption.tone-warn { border-left-color: var(--pkt-warn); }
+  .caption.tone-ok { border-left-color: var(--pkt-ok); }
+  .caption.tone-err { border-left-color: var(--pkt-err); }
+  .caption .stepno {
+    display: block;
+    font: 700 0.7rem/1.6 ui-monospace, Menlo, Consolas, monospace;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .transport button {
+    font: 600 0.85rem/1 ui-monospace, Menlo, Consolas, monospace;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.45rem 0.7rem;
+    cursor: pointer;
+  }
+  .transport button:hover { border-color: var(--accent); color: var(--accent); }
+  .transport button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .transport .dots { display: flex; gap: 0.3rem; margin-left: 0.5rem; flex-wrap: wrap; }
+  .transport .dots button {
+    width: 0.75rem; height: 0.75rem; padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--muted);
+    background: transparent;
+  }
+  .transport .dots button.done { background: var(--muted); border-color: var(--muted); }
+  .transport .dots button.now { background: var(--accent); border-color: var(--accent); }
+  .transport select {
+    margin-left: auto;
+    font: 600 0.8rem/1 ui-monospace, Menlo, Consolas, monospace;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.4rem 0.5rem;
+  }
+  .transport .kbd-hint { color: var(--muted); font-size: 0.75rem; margin-left: 0.6rem; }
+
+  .legend { display: flex; gap: 1.1rem; flex-wrap: wrap; margin-top: 0.9rem; color: var(--muted); font-size: 0.78rem; }
+  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .legend i { width: 0.65rem; height: 0.65rem; border-radius: 50%; display: inline-block; }
+
+  footer { color: var(--muted); font-size: 0.8rem; margin-top: 1rem; }
+  footer code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .packet { transition: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>🫛 psh Flow Theater</h1>
+    <p class="sub">How the pistachio shell runs your commands — pick a scene from the map or the chips, then play or step through. Everything before a kernel box is pure psh; the kernel line is crossed only at fork · execvp · pipe · dup2 · open · socket · wait · signals · termios.</p>
+  </header>
+
+  <div class="chips" id="chips" role="tablist" aria-label="Processes"></div>
+
+  <div class="theater">
+    <div class="theater-head">
+      <h2 id="sceneTitle"></h2>
+      <span class="where" id="sceneWhere"></span>
+    </div>
+    <div class="stage-box" id="stageBox"></div>
+    <div class="deck">
+      <div class="caption" id="caption" aria-live="polite"></div>
+      <div class="transport" id="transport">
+        <button type="button" id="btnRestart" aria-label="Restart">⏮</button>
+        <button type="button" id="btnPrev" aria-label="Previous step">◀</button>
+        <button type="button" id="btnPlay" aria-label="Play or pause">▶ Play</button>
+        <button type="button" id="btnNext" aria-label="Next step">▶|</button>
+        <div class="dots" id="dots"></div>
+        <select id="speed" aria-label="Playback speed">
+          <option value="0.6">0.6×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.6">1.6×</option>
+          <option value="2.4">2.4×</option>
+        </select>
+        <span class="kbd-hint">←/→ step · space play</span>
+      </div>
+      <div class="legend">
+        <span><i style="background: var(--pkt-data)"></i> data / message</span>
+        <span><i style="background: var(--pkt-warn)"></i> anomaly path</span>
+        <span><i style="background: var(--pkt-ok)"></i> resolution / healthy</span>
+        <span><i style="background: var(--pkt-err)"></i> failure / blocked</span>
+        <span>dashed box = another process (click to jump)</span>
+        <span>dashed arrow = compat / bootstrap / reply</span>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Hand-traced from <code>src/*.c</code> on <code>main</code> (through H8.2, commit <code>e3ee4f4</code>) — scenes are authored data, so when the shell changes, this page needs a <code>SCENES</code> edit to follow.
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- scene data (REPLACE everything in SCENES) ---------- */
+
+const SCENES = [
+{
+  id: 'overview', chip: 'Overview', title: 'Overview — pick a scene to zoom in',
+  where: 'click any box', w: 980, h: 340,
+  blurb: 'The pistachio shell at a glance. You sit on the left; each dashed box is one animated scene. Everything inside psh is tokens, trees and tables — the kernel appears only where a scene truly needs it.',
+  nodes: [
+    { id: 'you', label: 'you\nat the prompt', type: 'actor', x: 100, y: 170, w: 120 },
+    { id: 'A', label: 'A · A simple command\nkeystrokes → fork → $?', type: 'ref', link: 'A', x: 320, y: 90, w: 200 },
+    { id: 'B', label: 'B · A pipeline\npipe · fork · dup2, ×3', type: 'ref', link: 'B', x: 320, y: 250, w: 200 },
+    { id: 'C', label: 'C · Builtins in-parent\nthe fd park-and-unwind', type: 'ref', link: 'C', x: 560, y: 90, w: 200 },
+    { id: 'D', label: 'D · The H7 wire\nexec 3<>/dev/tcp → redis', type: 'ref', link: 'D', x: 560, y: 250, w: 200 },
+    { id: 'E', label: 'E · Job control\nCtrl-Z · bg · fg', type: 'ref', link: 'E', x: 800, y: 90, w: 190 },
+    { id: 'F', label: 'F · Multi-line input\n*incomplete → "  > "', type: 'ref', link: 'F', x: 800, y: 250, w: 190 },
+  ],
+  edges: [
+    { from: 'you', to: 'A' },
+    { from: 'you', to: 'B' },
+  ],
+  steps: [],
+},
+{
+  id: 'A', chip: 'A', title: 'A · A simple command: ls -l ~/src',
+  where: 'starts at your keys · ends at a fresh prompt', w: 980, h: 440,
+  blurb: 'One keystroke to one $? — the whole left-to-right life of a command. Parse first, expand at execution time, quote-remove last: the ordering that makes X=5; echo $X print 5.',
+  nodes: [
+    { id: 'you', label: 'you\ntyping', type: 'actor', x: 85, y: 165, w: 110 },
+    { id: 'cockpit', label: 'cockpit · editor.c\nraw termios', type: 'service', x: 250, y: 90, w: 160 },
+    { id: 'lexer', label: 'lexer.c\nraw tokens', type: 'service', x: 440, y: 90, w: 130 },
+    { id: 'parser', label: 'parser.c\nstatement tree', type: 'service', x: 620, y: 90, w: 140 },
+    { id: 'expand', label: 'expand.c\n~ · $vars · glob', type: 'service', x: 810, y: 90, w: 150 },
+    { id: 'exec', label: 'exec.c\nno builtin → fork path', type: 'service', x: 620, y: 230, w: 160 },
+    { id: 'kernel', label: 'kernel\nfork · execvp · wait', type: 'actor', x: 850, y: 230, w: 150 },
+    { id: 'child', label: 'child process\nls -l /home/you/src', type: 'service', x: 850, y: 350, w: 160 },
+    { id: 'omp', label: 'omp hooks\nprompt re-render', type: 'service', x: 250, y: 230, w: 150 },
+  ],
+  edges: [
+    { id: 'type', from: 'you', to: 'cockpit' },
+    { id: 'submit', from: 'cockpit', to: 'lexer', label: 'Enter' },
+    { id: 'tokens', from: 'lexer', to: 'parser' },
+    { id: 'tree', from: 'parser', to: 'exec' },
+    { id: 'expandcall', from: 'exec', to: 'expand', label: 'at run time' },
+    { id: 'forkE', from: 'exec', to: 'kernel', label: 'fork()' },
+    { id: 'execve', from: 'kernel', to: 'child', label: 'execvp via $PATH' },
+    { id: 'status', from: 'child', to: 'exec', label: '$?', dashed: true },
+    { id: 'hooks', from: 'exec', to: 'omp' },
+    { id: 'prompt', from: 'omp', to: 'cockpit', dashed: true },
+  ],
+  steps: [
+    { caption: 'Keystrokes land in the cockpit: raw termios, every byte repainted. The REAL lexer colors the line as you type — a typo\'d command glows red before Enter — and the newest matching history entry ghosts ahead as an autosuggestion.', packets: [{ edge: 'type' }], focus: ['cockpit'] },
+    { caption: 'Enter submits. The line goes to the lexer, and words are kept RAW — quotes and $( ) stay inside the token. Nothing is expanded yet, on purpose.', packets: [{ edge: 'submit' }] },
+    { caption: 'Recursive descent builds a statement tree: pipelines inside &&/|| lists inside statements. Keywords are only special in command position, like sh.', packets: [{ edge: 'tokens' }], focus: ['parser'] },
+    { caption: 'The tree reaches the executor. Only NOW does expansion happen: ~ becomes /home/you, $vars resolve — and values never word-split, the founding rule.', packets: [{ edge: 'tree' }, { edge: 'expandcall' }] },
+    { caption: 'ls is no function and no builtin, so the kernel line is crossed: fork(). Everything left of this arrow was pure psh.', packets: [{ edge: 'forkE', color: 'warn' }], tone: 'warn' },
+    { caption: 'The child execvps ls, found by walking $PATH. The parent waitpids — a foreground job owning the terminal while it runs.', packets: [{ edge: 'execve' }], focus: ['child'] },
+    { caption: 'The child exits; its status becomes $? (127 = not found, 126 = not runnable, 128+n = killed by signal n).', packets: [{ edge: 'status', color: 'ok' }] },
+    { caption: 'Before the next prompt, omp_precmd fires the hook chain — git segment, venv probe, duration — all written in psh, running in psh. End state: the cockpit rests at a fresh prompt with $? on display.', packets: [{ edge: 'hooks' }, { edge: 'prompt', color: 'ok' }], tone: 'ok' },
+  ],
+},
+{
+  id: 'B', chip: 'B', title: 'B · A pipeline: ls | grep foo | wc -l',
+  where: 'starts in exec.c · ends in the last stage\'s status', w: 980, h: 380,
+  blurb: 'The M2 core, unchanged since week one: a loop of pipe() + fork() + dup2(), all stages genuinely concurrent, exit status taken from the last stage.',
+  nodes: [
+    { id: 'exec', label: 'exec.c · run_pipeline\none loop, three stages', type: 'service', x: 130, y: 90, w: 180 },
+    { id: 'kernel', label: 'kernel\npipe · fork · dup2', type: 'actor', x: 130, y: 280, w: 170 },
+    { id: 'ls', label: 'child 1\nls', type: 'service', x: 380, y: 170, w: 110 },
+    { id: 'pipe1', label: 'pipe #1', type: 'queue', x: 505, y: 170, w: 90 },
+    { id: 'grep', label: 'child 2\ngrep foo', type: 'service', x: 630, y: 170, w: 110 },
+    { id: 'pipe2', label: 'pipe #2', type: 'queue', x: 755, y: 170, w: 90 },
+    { id: 'wc', label: 'child 3\nwc -l', type: 'service', x: 880, y: 170, w: 110 },
+  ],
+  edges: [
+    { id: 'ask', from: 'exec', to: 'kernel', label: 'pipe(), fork(), ×3' },
+    { id: 'f1', from: 'kernel', to: 'ls' },
+    { id: 'f2', from: 'kernel', to: 'grep', bend: 40 },
+    { id: 'f3', from: 'kernel', to: 'wc', bend: 55 },
+    { id: 'd1', from: 'ls', to: 'pipe1' },
+    { id: 'd2', from: 'pipe1', to: 'grep' },
+    { id: 'd3', from: 'grep', to: 'pipe2' },
+    { id: 'd4', from: 'pipe2', to: 'wc' },
+    { id: 'status', from: 'wc', to: 'exec', label: 'status of the LAST stage', dashed: true, bend: 70 },
+  ],
+  steps: [
+    { caption: 'One loop over the stages: for each, pipe() if a neighbor follows, then fork(). All three children come to life within microseconds of each other.', packets: [{ edge: 'ask' }] },
+    { caption: 'Child 1: dup2 points ls\'s stdout at pipe #1\'s write end. Child 2: stdin from pipe #1, stdout to pipe #2. Child 3: stdin from pipe #2. Each child then execvps.', packets: [{ edge: 'f1' }, { edge: 'f2' }, { edge: 'f3' }] },
+    { caption: 'The parent closes ITS copies of every pipe end — skip this and readers never see EOF: grep would wait forever on a pipe the shell still holds open.', focus: ['exec'], tone: 'warn' },
+    { caption: 'The stages run CONCURRENTLY — this is not a relay. Bytes stream through both pipes at once, each child reading as fast as its neighbor writes.', packets: [{ edge: 'd1' }, { edge: 'd2' }, { edge: 'd3' }, { edge: 'd4' }] },
+    { caption: 'wc prints its count. The parent waits for the whole job (every pid, one process group).', packets: [{ edge: 'd4', color: 'ok' }], focus: ['wc'] },
+    { caption: 'End state: $? is the LAST stage\'s status — false | true is 0, true | false is 1. Sh law, honored since M2.', packets: [{ edge: 'status', color: 'ok' }], tone: 'ok' },
+  ],
+},
+{
+  id: 'C', chip: 'C', title: 'C · A builtin in-parent: pwd > file',
+  where: 'starts in try_run_in_parent · ends with the shell\'s fds restored', w: 980, h: 400,
+  blurb: 'cd and pwd cannot fork — they exist to mutate the shell\'s own state, and a child\'s mutations die with it. So the shell rewires ITSELF, carefully, and puts everything back.',
+  nodes: [
+    { id: 'exec', label: 'try_run_in_parent\nlone builtin, no fork', type: 'service', x: 130, y: 170, w: 180 },
+    { id: 'park', label: 'fd parking\nF_DUPFD_CLOEXEC, above 10', type: 'service', x: 420, y: 80, w: 200 },
+    { id: 'kernel', label: 'kernel\nopen · dup2', type: 'actor', x: 420, y: 270, w: 150 },
+    { id: 'builtin', label: 'pwd builtin\nruns in the shell', type: 'service', x: 680, y: 170, w: 150 },
+    { id: 'file', label: 'file', type: 'store', x: 890, y: 170, w: 100 },
+    { id: 'state', label: 'shell state\ncwd · vars · fds', type: 'store', x: 680, y: 320, w: 160 },
+  ],
+  edges: [
+    { id: 'save', from: 'exec', to: 'park', label: 'save first' },
+    { id: 'apply', from: 'exec', to: 'kernel', label: 'redirects, in source order' },
+    { id: 'open', from: 'kernel', to: 'file', label: 'open, dup2 onto fd 1', bend: 25 },
+    { id: 'run', from: 'exec', to: 'builtin' },
+    { id: 'write', from: 'builtin', to: 'file' },
+    { id: 'mutate', from: 'builtin', to: 'state', dashed: true },
+    { id: 'unwind', from: 'park', to: 'exec', label: 'unwind, in REVERSE', dashed: true },
+  ],
+  steps: [
+    { caption: 'A lone builtin (or function) stays in the parent — that is what lets cd change the shell\'s directory and export write its variable table.', focus: ['exec'] },
+    { caption: 'Before touching anything: every fd the redirects will hit gets a CLOEXEC copy parked above the user range — above every fd the command touches, so a copy can never collide with a later redirect.', packets: [{ edge: 'save' }] },
+    { caption: 'Redirects apply in source order — the order IS the semantics: >f 2>&1 differs from 2>&1 >f. The kernel is crossed for open and dup2 only.', packets: [{ edge: 'apply' }, { edge: 'open' }] },
+    { caption: 'The builtin runs inside the shell process, its stdout now pointing at the file. cd would instead mutate the shell\'s own cwd — same mechanism, different target.', packets: [{ edge: 'run' }, { edge: 'write' }, { edge: 'mutate' }] },
+    { caption: 'Flush BEFORE restoring — stdio buffers bytes, and unflushed output would land on the fd that comes back, not the one it was written to.', focus: ['builtin'], tone: 'warn' },
+    { caption: 'The parked copies unwind in reverse order, so >a >b (fd 1 touched twice) restores correctly. End state: shell fds exactly as before; the file holds the output; no child ever existed.', packets: [{ edge: 'unwind', color: 'ok' }], tone: 'ok' },
+  ],
+},
+{
+  id: 'D', chip: 'D', title: 'D · The H7 wire: exec 3<>/dev/tcp/127.0.0.1/6379',
+  where: 'starts at the exec builtin · ends with +PONG in a variable', w: 980, h: 340,
+  blurb: 'Linux has no /dev/tcp — the shell fakes it in the redirect engine, and exec makes the socket permanent. A packet literally travels to redis and back.',
+  nodes: [
+    { id: 'execb', label: 'exec builtin\nredirs stick to the SHELL', type: 'service', x: 130, y: 90, w: 180 },
+    { id: 'redir', label: 'apply_one_redir\n/dev/tcp intercepted', type: 'service', x: 130, y: 230, w: 180 },
+    { id: 'kernel', label: 'kernel\ngetaddrinfo · socket · connect', type: 'actor', x: 420, y: 230, w: 210 },
+    { id: 'redis', label: 'redis\n127.0.0.1:6379', type: 'actor', x: 850, y: 230, w: 150 },
+    { id: 'fd3', label: 'fd 3 — the wire\nno restore: it stays', type: 'queue', x: 420, y: 90, w: 160 },
+    { id: 'cmds', label: 'later commands\necho PING >&3', type: 'service', x: 655, y: 90, w: 150 },
+    { id: 'readb', label: 'read builtin\none byte at a time', type: 'service', x: 870, y: 90, w: 150 },
+  ],
+  edges: [
+    { id: 'e1', from: 'execb', to: 'redir', label: '3<> a path that isn\'t' },
+    { id: 'e2', from: 'redir', to: 'kernel' },
+    { id: 'e3', from: 'kernel', to: 'redis', label: 'connect()' },
+    { id: 'e4', from: 'kernel', to: 'fd3', label: 'the socket is just an fd' },
+    { id: 'e5', from: 'cmds', to: 'fd3' },
+    { id: 'e6', from: 'fd3', to: 'redis', label: 'PING\\r\\n' },
+    { id: 'e7', from: 'redis', to: 'fd3', label: '+PONG\\r\\n', dashed: true, bend: 40 },
+    { id: 'e8', from: 'fd3', to: 'readb', bend: -60 },
+  ],
+  steps: [
+    { caption: '/dev/tcp/host/port reaches the redirect engine. No such file exists — the path is intercepted before open() ever sees it.', packets: [{ edge: 'e1' }, { edge: 'e2' }] },
+    { caption: 'getaddrinfo resolves (hostnames, service names, numeric IPv6 — the LAST slash splits), then socket + connect, every address tried. Ctrl-C aborts a dead host: EINTR ends the loop, not the shell.', packets: [{ edge: 'e3', color: 'warn' }], tone: 'warn' },
+    { caption: 'Because this is exec, there is NO restore step: fd 3 outlives the command. Every later command in the session inherits the wire.', packets: [{ edge: 'e4', color: 'ok' }], focus: ['fd3'] },
+    { caption: 'echo PING >&3 — plain inline RESP, CRLF and all, written straight down the socket by a command that has no idea it is talking to a network.', packets: [{ edge: 'e5' }, { edge: 'e6' }] },
+    { caption: '+PONG comes back and sits in the socket buffer, waiting.', packets: [{ edge: 'e7' }] },
+    { caption: 'read -r pong <&3 takes the reply ONE BYTE at a time — exactly one line consumed, nothing gulped (head would swallow the next reply too). The trailing \\r of CRLF is stripped by the shell.', packets: [{ edge: 'e8', color: 'ok' }], focus: ['readb'] },
+    { caption: 'End state: [ "$pong" = +PONG ] compares clean, and the wire stays open for the next command — until exec 3>&- hangs up. If redis dies first, a write reports EPIPE with status 1; SIGPIPE is ignored, the tab survives.', tone: 'ok', focus: ['fd3', 'readb'] },
+  ],
+},
+{
+  id: 'E', chip: 'E', title: 'E · Job control: sleep 100, Ctrl-Z, bg, fg',
+  where: 'starts at the terminal · ends with the job resumed', w: 980, h: 380,
+  blurb: 'Process groups and one rule: the terminal belongs to exactly one group at a time, and stop signals go to the foreground group — never the shell.',
+  nodes: [
+    { id: 'term', label: 'terminal (tty)\ntcsetpgrp decides', type: 'actor', x: 120, y: 90, w: 160 },
+    { id: 'shell', label: 'psh\nits own process group', type: 'service', x: 120, y: 260, w: 160 },
+    { id: 'kernel', label: 'kernel\nSIGTSTP · SIGCONT · waitpid', type: 'actor', x: 460, y: 170, w: 200 },
+    { id: 'job', label: 'sleep 100\nforeground group', type: 'service', x: 800, y: 90, w: 160 },
+    { id: 'jtab', label: 'jobs table\n[1] Stopped  sleep 100', type: 'store', x: 800, y: 290, w: 180 },
+  ],
+  edges: [
+    { id: 'hand', from: 'term', to: 'job', label: 'tcsetpgrp: yours now' },
+    { id: 'tz', from: 'term', to: 'kernel', label: 'Ctrl-Z' },
+    { id: 'sig', from: 'kernel', to: 'job', label: 'SIGTSTP → the group' },
+    { id: 'stopped', from: 'job', to: 'kernel', dashed: true, bend: 30 },
+    { id: 'notice', from: 'kernel', to: 'shell', label: 'waitpid, WUNTRACED' },
+    { id: 'record', from: 'shell', to: 'jtab' },
+    { id: 'back', from: 'term', to: 'shell', label: 'terminal handed back', dashed: true },
+    { id: 'cont', from: 'shell', to: 'kernel', label: 'bg / fg → SIGCONT', bend: 25 },
+  ],
+  steps: [
+    { caption: 'sleep 100 starts as a foreground job in its OWN process group, and tcsetpgrp hands it the terminal. The shell steps aside.', packets: [{ edge: 'hand' }] },
+    { caption: 'Ctrl-Z: the terminal driver sends SIGTSTP to the FOREGROUND group — the job. The shell never sees it; it ignores the stop signals entirely.', packets: [{ edge: 'tz' }, { edge: 'sig', color: 'warn' }], tone: 'warn' },
+    { caption: 'The job stops. waitpid with WUNTRACED — the flag that means "stopped counts as news" — wakes the shell.', packets: [{ edge: 'stopped' }, { edge: 'notice' }] },
+    { caption: 'The terminal comes back to the shell (tcsetpgrp again), the job\'s termios are saved per-job, and the jobs table records [1] Stopped.', packets: [{ edge: 'back' }, { edge: 'record' }] },
+    { caption: 'bg sends SIGCONT and leaves the terminal with the shell — the job runs detached. fg sends SIGCONT AND hands the terminal over, restoring the termios the job left behind.', packets: [{ edge: 'cont' }, { edge: 'sig', color: 'ok' }] },
+    { caption: 'End state: the job runs again where you chose; the shell waits (fg) or prompts (bg). One group owns the tty at all times — that invariant is the whole design.', tone: 'ok', focus: ['job', 'shell'] },
+  ],
+},
+{
+  id: 'F', chip: 'F', title: 'F · Multi-line input: an unfinished if',
+  where: 'starts at Enter · ends when fi closes the tree', w: 980, h: 340,
+  blurb: 'One bit of information — *incomplete — threads from the parser back to the REPL and turns "you stopped mid-if" into a continuation prompt instead of an error.',
+  nodes: [
+    { id: 'you', label: 'you\ntyping: if true', type: 'actor', x: 100, y: 90, w: 130 },
+    { id: 'cockpit', label: 'cockpit\nprompt', type: 'service', x: 310, y: 90, w: 140 },
+    { id: 'lexer', label: 'lexer.c', type: 'service', x: 530, y: 90, w: 120 },
+    { id: 'parser', label: 'parser.c\nfail_or_more()', type: 'service', x: 750, y: 90, w: 150 },
+    { id: 'repl', label: 'main.c REPL\nbuffer accumulator', type: 'service', x: 530, y: 240, w: 170 },
+    { id: 'exec', label: 'exec.c\nruns the tree', type: 'service', x: 780, y: 240, w: 150 },
+  ],
+  edges: [
+    { id: 't1', from: 'you', to: 'cockpit', label: 'Enter' },
+    { id: 't2', from: 'cockpit', to: 'lexer' },
+    { id: 't3', from: 'lexer', to: 'parser' },
+    { id: 'inc', from: 'parser', to: 'repl', label: '*incomplete — not an error', dashed: true },
+    { id: 'cont', from: 'repl', to: 'cockpit', label: '"  > "', dashed: true },
+    { id: 'done', from: 'parser', to: 'exec', label: 'tree complete' },
+  ],
+  steps: [
+    { caption: 'Enter on "if true". The line takes the normal road: cockpit to lexer to parser.', packets: [{ edge: 't1' }, { edge: 't2' }, { edge: 't3' }] },
+    { caption: 'The parser runs out of tokens INSIDE the if. Running dry mid-construct is not a syntax error — fail_or_more() raises *incomplete instead. (An unclosed quote in the lexer raises the same flag.)', focus: ['parser'], tone: 'warn' },
+    { caption: 'The flag threads back to the REPL, which keeps the buffer and shows the "  > " continuation prompt.', packets: [{ edge: 'inc' }, { edge: 'cont' }] },
+    { caption: 'Each new line appends to the SAME buffer, and the whole thing is re-lexed and re-parsed from the top — simple, stateless, correct.', packets: [{ edge: 't2' }, { edge: 't3' }] },
+    { caption: 'fi arrives; the tree completes; execution proceeds as if the construct had been typed on one line.', packets: [{ edge: 'done', color: 'ok' }], tone: 'ok' },
+    { caption: 'End state: the same *incomplete at a script\'s EOF becomes a clean "unexpected end of input" — one mechanism, two faces: patience interactively, honesty in scripts.', focus: ['repl'], tone: 'ok' },
+  ],
+},
+];
+
+/* ---------- engine (no changes needed below) ---------- */
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = (id) => document.getElementById(id);
+
+const state = { scene: null, step: -1, playing: false, timer: null, anims: [] };
+
+function nodeSize(n) {
+  const lines = n.label.split('\n').length;
+  return { w: n.w || 150, h: 30 + lines * 16 };
+}
+
+function boundaryPoint(n, towards) {
+  const { w, h } = nodeSize(n);
+  const dx = towards.x - n.x, dy = towards.y - n.y;
+  if (!dx && !dy) return { x: n.x, y: n.y };
+  const sx = dx ? (w / 2 + 3) / Math.abs(dx) : Infinity;
+  const sy = dy ? (h / 2 + 3) / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  return { x: n.x + dx * s, y: n.y + dy * s };
+}
+
+function edgeGeometry(scene, e) {
+  const a = scene.nodes.find((n) => n.id === e.from);
+  const b = scene.nodes.find((n) => n.id === e.to);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  let ctrl = mid;
+  if (e.bend) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    ctrl = { x: mid.x - (dy / len) * e.bend, y: mid.y + (dx / len) * e.bend };
+  }
+  const p0 = boundaryPoint(a, ctrl);
+  const p1 = boundaryPoint(b, ctrl);
+  const d = e.bend
+    ? `M ${p0.x} ${p0.y} Q ${ctrl.x} ${ctrl.y} ${p1.x} ${p1.y}`
+    : `M ${p0.x} ${p0.y} L ${p1.x} ${p1.y}`;
+  const labelAt = e.bend
+    ? { x: 0.25 * p0.x + 0.5 * ctrl.x + 0.25 * p1.x, y: 0.25 * p0.y + 0.5 * ctrl.y + 0.25 * p1.y }
+    : mid;
+  return { d, labelAt };
+}
+
+function el(name, attrs, parent) {
+  const node = document.createElementNS(SVGNS, name);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function renderScene(scene) {
+  const box = $('stageBox');
+  box.textContent = '';
+  const svg = el('svg', { viewBox: `0 0 ${scene.w} ${scene.h}`, role: 'img', 'aria-label': scene.title });
+  const defs = el('defs', {}, svg);
+  const marker = el('marker', {
+    id: 'arrow', viewBox: '0 0 10 10', refX: '9', refY: '5',
+    markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse',
+  }, defs);
+  el('path', { d: 'M 0 1 L 9 5 L 0 9 z', fill: 'context-stroke' }, marker);
+
+  const edgesG = el('g', { id: 'edges' }, svg);
+  const nodesG = el('g', { id: 'nodes' }, svg);
+  el('g', { id: 'fx' }, svg);
+
+  for (const e of scene.edges) {
+    e.id = e.id || `${e.from}-${e.to}`;
+    const geo = edgeGeometry(scene, e);
+    const g = el('g', { class: `edge${e.dashed ? ' dashed' : ''}`, 'data-edge': e.id }, edgesG);
+    el('path', { d: geo.d, 'marker-end': 'url(#arrow)' }, g);
+    if (e.label) {
+      const t = el('text', { x: geo.labelAt.x, y: geo.labelAt.y - 7, 'text-anchor': 'middle' }, g);
+      t.textContent = e.label;
+    }
+  }
+
+  const BADGES = { queue: 'MQ', store: 'DB', endpoint: 'HTTP', log: 'LOG', ref: 'ZOOM' };
+  for (const n of scene.nodes) {
+    const { w, h } = nodeSize(n);
+    const g = el('g', { class: `node ${n.type}`, 'data-node': n.id }, nodesG);
+    el('rect', { x: n.x - w / 2, y: n.y - h / 2, width: w, height: h, rx: 7 }, g);
+    const lines = n.label.split('\n');
+    const text = el('text', { x: n.x, y: n.y - (lines.length - 1) * 8 + 4, 'text-anchor': 'middle' }, g);
+    lines.forEach((line, i) => {
+      const ts = el('tspan', { x: n.x, dy: i === 0 ? 0 : 16 }, text);
+      ts.textContent = line;
+    });
+    if (BADGES[n.type]) {
+      const b = el('text', { class: 'badge', x: n.x - w / 2 + 6, y: n.y - h / 2 - 4 }, g);
+      b.textContent = BADGES[n.type];
+    }
+    if (n.type === 'ref' && n.link) {
+      g.setAttribute('tabindex', '0');
+      g.setAttribute('role', 'link');
+      g.setAttribute('aria-label', `Open process ${n.link}`);
+      const open = () => loadScene(n.link);
+      g.addEventListener('click', open);
+      g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
+    }
+  }
+  box.appendChild(svg);
+}
+
+function clearAnims() {
+  state.anims.forEach(cancelAnimationFrame);
+  state.anims = [];
+  clearTimeout(state.timer);
+  document.querySelectorAll('#stageBox .packet').forEach((p) => p.remove());
+}
+
+function clearHighlights() {
+  document.querySelectorAll('#stageBox .edge.active, #stageBox .node.active')
+    .forEach((n) => n.classList.remove('active'));
+}
+
+function packetColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(`--pkt-${name || 'data'}`).trim() || '#888';
+}
+
+function animatePacket(edgeId, color, dur, done) {
+  const edgeG = document.querySelector(`#stageBox .edge[data-edge="${edgeId}"]`);
+  if (!edgeG) { done && done(); return; }
+  edgeG.classList.add('active');
+  const path = edgeG.querySelector('path');
+  const len = path.getTotalLength();
+  const fx = document.querySelector('#stageBox #fx');
+  const dot = el('circle', { class: 'packet', r: 7, fill: packetColor(color) }, fx);
+  if (reducedMotion) {
+    const p = path.getPointAtLength(len);
+    dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+    setTimeout(() => { dot.remove(); done && done(); }, 350);
+    return;
+  }
+  const t0 = performance.now();
+  function frame(now) {
+    let t = Math.min(1, (now - t0) / dur);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const p = path.getPointAtLength(ease * len);
+    dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+    if (t < 1) state.anims.push(requestAnimationFrame(frame));
+    else { setTimeout(() => dot.remove(), 250); done && done(); }
+  }
+  state.anims.push(requestAnimationFrame(frame));
+}
+
+function speed() { return parseFloat($('speed').value); }
+
+function showStep(i, { animate = true } = {}) {
+  const scene = state.scene;
+  clearAnims();
+  clearHighlights();
+  state.step = i;
+  const cap = $('caption');
+  cap.className = 'caption';
+  if (i < 0) {
+    cap.innerHTML = `<span class="stepno">ready · ${scene.steps.length ? scene.steps.length + ' steps' : 'interactive map'}</span>`;
+    cap.appendChild(document.createTextNode(scene.blurb));
+    renderDots();
+    return Promise.resolve();
+  }
+  const step = scene.steps[i];
+  if (step.tone) cap.classList.add(`tone-${step.tone}`);
+  cap.innerHTML = `<span class="stepno">step ${i + 1} / ${scene.steps.length}</span>`;
+  cap.appendChild(document.createTextNode(step.caption));
+  (step.focus || []).forEach((id) => {
+    const n = document.querySelector(`#stageBox .node[data-node="${id}"]`);
+    if (n) n.classList.add('active');
+  });
+  renderDots();
+  const packets = step.packets || [];
+  if (!packets.length) return Promise.resolve();
+  const dur = 1300 / speed();
+  return new Promise((resolve) => {
+    let remaining = packets.length;
+    packets.forEach((p) => {
+      const target = state.scene.edges.find((e) => e.id === p.edge);
+      animatePacket(p.edge, p.color, dur, () => {
+        if (target) {
+          const nodeEl = document.querySelector(`#stageBox .node[data-node="${target.to}"]`);
+          if (nodeEl) nodeEl.classList.add('active');
+        }
+        if (--remaining === 0) resolve();
+      });
+    });
+  });
+}
+
+function renderDots() {
+  const dots = $('dots');
+  dots.textContent = '';
+  state.scene.steps.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-label', `Go to step ${i + 1}`);
+    if (i < state.step) b.classList.add('done');
+    if (i === state.step) b.classList.add('now');
+    b.addEventListener('click', () => { pause(); showStep(i); });
+    dots.appendChild(b);
+  });
+}
+
+function holdFor(caption) {
+  return Math.min(6500, Math.max(1900, caption.length * 32)) / speed();
+}
+
+async function playLoop() {
+  while (state.playing) {
+    const next = state.step + 1;
+    if (next >= state.scene.steps.length) { pause(); break; }
+    await showStep(next);
+    if (!state.playing) break;
+    await new Promise((r) => { state.timer = setTimeout(r, holdFor(state.scene.steps[next].caption)); });
+  }
+}
+
+function play() {
+  if (!state.scene.steps.length || state.playing) return;
+  if (state.step >= state.scene.steps.length - 1) state.step = -1;
+  state.playing = true;
+  $('btnPlay').textContent = '⏸ Pause';
+  playLoop();
+}
+
+function pause() {
+  state.playing = false;
+  clearTimeout(state.timer);
+  $('btnPlay').textContent = '▶ Play';
+}
+
+function loadScene(id) {
+  const scene = SCENES.find((s) => s.id === id) || SCENES[0];
+  pause();
+  clearAnims();
+  state.scene = scene;
+  $('sceneTitle').textContent = scene.title;
+  $('sceneWhere').textContent = scene.where;
+  renderScene(scene);
+  $('transport').style.display = scene.steps.length ? '' : 'none';
+  showStep(-1);
+  document.querySelectorAll('#chips button').forEach((b) => {
+    b.classList.toggle('current', b.dataset.scene === scene.id);
+  });
+}
+
+/* ---------- boot ---------- */
+
+const chips = $('chips');
+SCENES.forEach((s) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = s.chip;
+  b.dataset.scene = s.id;
+  b.addEventListener('click', () => loadScene(s.id));
+  chips.appendChild(b);
+});
+
+$('btnPlay').addEventListener('click', () => (state.playing ? pause() : play()));
+$('btnNext').addEventListener('click', () => { pause(); if (state.step < state.scene.steps.length - 1) showStep(state.step + 1); });
+$('btnPrev').addEventListener('click', () => { pause(); showStep(Math.max(-1, state.step - 1)); });
+$('btnRestart').addEventListener('click', () => { pause(); showStep(-1); });
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('button, select, input, [role="link"]')) return;
+  if (e.key === 'ArrowRight') { pause(); if (state.step < state.scene.steps.length - 1) showStep(state.step + 1); }
+  else if (e.key === 'ArrowLeft') { pause(); showStep(Math.max(-1, state.step - 1)); }
+  else if (e.key === ' ') { e.preventDefault(); state.playing ? pause() : play(); }
+});
+
+loadScene('overview');
+</script>

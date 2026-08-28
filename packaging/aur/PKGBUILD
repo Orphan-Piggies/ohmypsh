@@ -9,6 +9,8 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/marmeladze/ohmypsh"
 license=('MIT')
 depends=('glibc')
+# the AUR "psh" (a different shell) also installs /usr/bin/psh
+conflicts=('psh')
 optdepends=('ollama: local AI for the ?? oracle plugin'
             'git: branch segment in the omp prompt')
 install=ohmypsh.install

@@ -18,7 +18,17 @@ F="two words"; rm $F       # deletes exactly ONE file — $VAR never word-splits
 for f in $(ls); do …       # $( ) splits on newlines only; spaces survive
 ```
 
-Everything else follows from taking those seriously.
+Everything else follows from taking those seriously. Which means,
+loudly: **`IFS` is ignored — everywhere.** Not honored for
+expansion but secretly consulted elsewhere: `read a b c` splits on
+blanks (hardcoded), `$VAR` never splits, and setting `IFS` changes
+nothing. When you genuinely want splitting, say so through the one
+gate that splits — `$( )` and its newlines:
+
+```sh
+args="-l -a"
+ls $(echo $args | tr " " "\n")   # the escape hatch: explicit, visible
+```
 
 ## A taste
 
@@ -54,9 +64,12 @@ set -eu -o pipefail                  # $PIPESTATUS, readonly — all aboard
 - **The armory** — three standalone tools, below.
 
 Prefer watching to reading? The
-[**psh Flow Theater**](https://claude.ai/code/artifact/abbdfe69-bbd9-4b4f-bb12-4f4770f01f40)
+[**psh Flow Theater**](https://marmeladze.github.io/ohmypsh/flow-theater.html)
 animates the internals: a keystroke becoming a fork, a PING riding
 `/dev/tcp` to redis and back, Ctrl-Z's journey through the kernel.
+It's one self-contained HTML file living in this repo
+([docs/flow-theater.html](docs/flow-theater.html)) — no CDN, no
+tracker, works from a local clone with `roast`-level independence.
 
 ## 🫛 oh-my-psh
 
