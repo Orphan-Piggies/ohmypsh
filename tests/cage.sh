@@ -64,6 +64,28 @@ check "/dev/null stays writable" "breathes" "$out"
 $CAGE_BIN -q sh -c 'exit 7'
 check "the child's exit status is forwarded" "7" "$?"
 
+abi=$($CAGE_BIN -V | sed 's/[^0-9]*//g')
+if [ "$abi" -ge 4 ] 2>/dev/null && command -v python3 >/dev/null; then
+    # TCP denial: connect must fail with EACCES (permission), which
+    # is distinct from ECONNREFUSED (nobody listening) — so this
+    # holds whether or not anything is on the port
+    out=$($CAGE_BIN -q python3 -c 'import socket
+s=socket.socket()
+try: s.connect(("127.0.0.1", 1)); print("connected")
+except PermissionError: print("blocked")
+except OSError as e: print("other:", e)' 2>&1)
+    check "TCP connect is denied by default (ABI $abi)" "blocked" "$out"
+
+    out=$($CAGE_BIN -q -N python3 -c 'import socket
+s=socket.socket()
+try: s.connect(("127.0.0.1", 1)); print("connected")
+except PermissionError: print("blocked")
+except OSError: print("refused-or-other")' 2>&1)
+    check "-N reopens the network" "refused-or-other" "$out"
+else
+    printf 'skip TCP tests (Landlock ABI %s < 4)\n' "$abi"
+fi
+
 $CAGE_BIN -q definitely-missing-xirt 2>/dev/null
 check "a missing command is 127" "127" "$?"
 

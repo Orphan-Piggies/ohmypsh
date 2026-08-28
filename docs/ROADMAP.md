@@ -355,6 +355,13 @@ the terminal emulator's job, and one small C enabler.
       fallback was DROPPED — on kernels without Landlock cage
       refuses with 125, because a sandbox that silently isn't
       one is worse than none. Proven by caging psh itself.
+      2026-08-28 review addendum: cage is a BLAST RADIUS, not a
+      security boundary — Landlock is fs-only, so UDP/unix
+      sockets, ptrace, env reads stay open — and the docs now
+      shout it (NON-GOALS in cage(1) and README). TCP bind/
+      connect is denied by default on ABI 4+ kernels (-N lifts
+      it, -V prints the ABI, older ABIs get an honest note);
+      probed by psh's own /dev/tcp meeting the cage.
 - [x] H10.2 the ?? oracle, landed as spec'd plus two C dispensations
       it turned out to need. $PSH_PRELOAD: the editor stages its
       next line from the variable, fully editable, consumed once

@@ -117,11 +117,17 @@ columns, links become real hyperlinks, fenced code keeps salt's
 highlighting while the fences vanish. `roast docs/ROADMAP.md` —
 checkboxes look like checkboxes.
 
-**🔒 cage** — run the sketchy thing FIRST: `cage ./installer.sh`
-executes anything against a kernel-enforced **read-only
-filesystem** (Landlock, unprivileged), writes surviving only in a
-kept scratch dir you inspect afterwards. On kernels without
-Landlock it refuses rather than silently running uncaged.
+**🔒 cage** — try the sketchy thing without letting it rearrange
+your files: `cage ./installer.sh` runs against a kernel-enforced
+**read-only filesystem** (Landlock, unprivileged), writes
+surviving only in a kept scratch dir you inspect afterwards; on
+ABI 4+ kernels TCP is blocked too (`-N` reopens it). Without
+Landlock it refuses rather than silently running uncaged. **Know
+what it is not**: a blast radius, not a security boundary — a
+caged process still runs as you (reads your env and keys, UDP and
+unix sockets stay open, ptrace works). It contains sloppy code's
+*accidents*, not hostile code's *intent*; real distrust calls for
+a VM. `man cage` has the full non-goals list.
 
 ```sh
 salt src/exec.c                     # colors, and only colors

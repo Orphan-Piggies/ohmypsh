@@ -1,33 +1,40 @@
 /*
- * cage — the armory's sandbox. 🫛🔒
+ * cage — the armory's DAMAGE-CONTAINMENT tool. 🫛🔒
  *
- * Run the sketchy thing FIRST, then decide:
+ * Try the sketchy thing without letting it rearrange your files:
  *
  *   cage ./install.psh           the filesystem is READ-ONLY except
- *                                a fresh scratch dir; the script
- *                                runs, its writes land in the cage
+ *                                a fresh scratch dir; TCP is blocked
  *   cage -w build make           grant extra writable dirs
+ *   cage -N curl-thing.sh        allow the network back
  *
  * Built on Landlock: unprivileged, kernel-enforced, pure syscalls —
- * no setuid, no containers, no dependencies, in keeping with the
- * house vow. The policy is deny-by-default for every write-shaped
- * access (create, write, truncate, delete, rename-in) across the
- * whole tree, then allowed back for: the scratch dir (also exported
- * as $CAGE_DIR and $TMPDIR, so well-behaved tools aim there by
- * themselves), each -w DIR, and /dev/null + /dev/tty (scripts
- * breathe through those). Reading and executing stay open — cage
- * guards your files, it is not a secrecy tool. Already-open fds
- * (your terminal) keep working: Landlock governs open(2), not
- * write(2) on inherited descriptors.
+ * no setuid, no containers, no dependencies. Deny-by-default for
+ * every write-shaped access across the whole tree, allowed back
+ * for: the scratch dir (exported as $CAGE_DIR and $TMPDIR), each
+ * -w DIR, and /dev/null + /dev/tty. On Landlock ABI 4+ kernels
+ * (6.7+), TCP bind/connect is denied too unless -N. Reading and
+ * executing stay open — cage guards your files, it is not a
+ * secrecy tool. The scratch dir SURVIVES the run: inspecting what
+ * the caged thing tried to build is the point.
  *
- * The scratch dir SURVIVES the run — inspecting what the caged
- * thing tried to build is the point. Denied writes reach the child
- * as plain EACCES, so its own error messages name every blocked
- * path.
+ * ================== NON-GOALS, READ THIS ==================
+ * cage is a blast radius, NOT a security boundary. A caged
+ * process still runs as YOU: it can read anything you can read
+ * (your env, your keys), talk over UDP and unix sockets (TCP is
+ * blocked only on ABI 4+ kernels, and -N reopens it), ptrace
+ * your other same-uid processes, and burn CPU forever. It
+ * contains the accidents of sloppy code — the rm -rf, the
+ * scribbled dotfile — not the intent of hostile code. Truly
+ * untrusted software belongs in a VM, not a cage.
+ * ==========================================================
  *
- * No Landlock (kernel < 5.13, or LSM not enabled)? cage REFUSES,
- * loudly. A sandbox that silently doesn't sandbox is worse than
- * none. Check /sys/kernel/security/lsm for "landlock".
+ * No Landlock at all (kernel < 5.13, or LSM not enabled)? cage
+ * REFUSES, loudly. A sandbox that silently doesn't sandbox is
+ * worse than none. Check /sys/kernel/security/lsm for "landlock".
+ * Filesystem-only Landlock (ABI < 4)? cage runs but SAYS the
+ * network is unrestrained — what you get is version-dependent,
+ * so cage tells you which version you got.
  *
  * Exit: the child's status (128+sig if signaled), 126/127 if the
  * command won't run, 125 if the cage itself cannot be built, 2 for
@@ -110,14 +117,20 @@ static int allow(int ruleset, const char *path, __u64 access,
 
 static void usage(void)
 {
-    fputs("cage — run a command against a read-only world 🔒\n"
-          "usage: cage [-w DIR]... [-q] CMD [ARGS...]\n"
+    fputs("cage — contain a command's damage, not its intent 🔒\n"
+          "usage: cage [-w DIR]... [-N] [-q] CMD [ARGS...]\n"
           "  -w DIR  also allow writes beneath DIR (repeatable)\n"
+          "  -N      allow the network (TCP is blocked by default\n"
+          "          on Landlock ABI 4+ kernels)\n"
           "  -q      no banner\n"
+          "  -V      print the kernel's Landlock ABI and exit\n"
           "Writes land in a fresh scratch dir (exported as $CAGE_DIR\n"
           "and $TMPDIR), kept after the run for inspection. Reading\n"
           "and executing stay open; /dev/null and /dev/tty stay\n"
-          "writable. Everything else answers EACCES.\n",
+          "writable. Everything else answers EACCES.\n"
+          "NOT a security boundary: a caged process still runs as\n"
+          "you — it can read what you read, use UDP/unix sockets,\n"
+          "and ptrace your processes. Hostile code belongs in a VM.\n",
           stderr);
 }
 
@@ -125,10 +138,10 @@ int main(int argc, char **argv)
 {
     const char *wdirs[32];
     size_t nw = 0;
-    bool quiet = false;
+    bool quiet = false, allow_net = false, print_abi = false;
     int opt;
 
-    while ((opt = getopt(argc, argv, "+w:qh")) != -1) {
+    while ((opt = getopt(argc, argv, "+w:NqVh")) != -1) {
         switch (opt) {
         case 'w':
             if (nw >= sizeof wdirs / sizeof wdirs[0]) {
@@ -137,17 +150,23 @@ int main(int argc, char **argv)
             }
             wdirs[nw++] = optarg;
             break;
+        case 'N': allow_net = true; break;
         case 'q': quiet = true; break;
+        case 'V': print_abi = true; break;
         case 'h': usage(); return 0;
         default: usage(); return 2;
         }
+    }
+
+    int abi = ll_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+    if (print_abi) {
+        printf("landlock abi %d\n", abi < 0 ? 0 : abi);
+        return abi < 0 ? 125 : 0;
     }
     if (optind >= argc) {
         usage();
         return 2;
     }
-
-    int abi = ll_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
     if (abi < 0) {
         fprintf(stderr,
                 "cage: no Landlock here (kernel < 5.13, or the LSM is "
@@ -170,6 +189,24 @@ int main(int argc, char **argv)
 #endif
 
     struct landlock_ruleset_attr attr = { .handled_access_fs = handled };
+
+    /* TCP: denied outright on ABI 4+ unless -N — handling the bits
+     * and allowing nothing means no bind, no connect. UDP and unix
+     * sockets remain OPEN (Landlock can't reach them); that's part
+     * of why cage is a blast radius, not a security boundary. */
+    bool net_caged = false;
+#ifdef LANDLOCK_ACCESS_NET_BIND_TCP
+    if (abi >= 4 && !allow_net) {
+        attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP |
+                                  LANDLOCK_ACCESS_NET_CONNECT_TCP;
+        net_caged = true;
+    }
+#endif
+    if (!net_caged && !allow_net)
+        fprintf(stderr, "cage: note: Landlock ABI %d has no TCP "
+                        "scoping — the network is unrestrained here\n",
+                abi);
+
     int ruleset = ll_create_ruleset(&attr, sizeof attr, 0);
     if (ruleset < 0) {
         fprintf(stderr, "cage: create_ruleset: %s\n", strerror(errno));
@@ -215,8 +252,9 @@ int main(int argc, char **argv)
     close(ruleset);
 
     if (!quiet)
-        fprintf(stderr, "cage: 🔒 read-only world · scratch %s (kept)\n",
-                scratch);
+        fprintf(stderr,
+                "cage: 🔒 read-only world · %s · scratch %s (kept)\n",
+                net_caged ? "no TCP" : "network OPEN", scratch);
 
     execvp(argv[optind], argv + optind);
     fprintf(stderr, "cage: %s: %s\n", argv[optind], strerror(errno));

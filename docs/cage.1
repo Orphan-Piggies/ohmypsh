@@ -38,6 +38,26 @@ Landlock governs
 .BR open (2),
 not writes on inherited descriptors. The restriction is inherited
 by every descendant process and cannot be shed.
+.PP
+On Landlock ABI 4+ kernels (Linux 6.7+), TCP bind and connect are
+denied as well unless
+.B \-N
+is given; on older ABIs cage prints a note that the network is
+unrestrained, because what a given kernel enforces is
+version-dependent and you deserve to know which version you got
+.RB ( "cage \-V"
+prints it).
+.SH NON-GOALS
+.B cage is a blast radius, not a security boundary.
+A caged process still runs as you: it can READ anything you can
+read (your environment, your keys), talk over UDP and unix sockets
+(TCP is blocked only on ABI 4+, and
+.B \-N
+reopens it), ptrace your other same-uid processes, and consume CPU
+and memory freely. cage contains the accidents of sloppy code \-
+the stray rm \-rf, the scribbled dotfile \- not the intent of
+hostile code. Software you actually distrust belongs in a virtual
+machine, not a cage.
 .SH OPTIONS
 .TP
 .BI \-w " DIR"
@@ -45,8 +65,14 @@ Also allow writes beneath
 .IR DIR .
 Repeatable.
 .TP
+.B \-N
+Allow the network (lifts the ABI 4+ TCP denial).
+.TP
 .B \-q
 No banner.
+.TP
+.B \-V
+Print the kernel's Landlock ABI version and exit.
 .SH EXIT STATUS
 The command's own status (128+n if killed by signal n); 127 if the
 command was not found, 126 if it would not run; 125 if the cage
