@@ -377,7 +377,7 @@ const SCENES = [
     { id: 'e5', from: 'cmds', to: 'fd3' },
     { id: 'e6', from: 'fd3', to: 'redis', label: 'PING\\r\\n' },
     { id: 'e7', from: 'redis', to: 'fd3', label: '+PONG\\r\\n', dashed: true, bend: 40 },
-    { id: 'e8', from: 'fd3', to: 'readb', bend: -60 },
+    { id: 'e8', from: 'fd3', to: 'readb', bend: -75 },
   ],
   steps: [
     { caption: '/dev/tcp/host/port reaches the redirect engine. No such file exists — the path is intercepted before open() ever sees it.', packets: [{ edge: 'e1' }, { edge: 'e2' }] },
