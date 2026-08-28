@@ -1,6 +1,6 @@
 pkgbase = ohmypsh
 	pkgdesc = psh, the pistachio shell — with salt, roast and cage
-	pkgver = 0.13.2
+	pkgver = 0.13.3
 	pkgrel = 1
 	url = https://github.com/marmeladze/ohmypsh
 	install = ohmypsh.install
@@ -11,7 +11,7 @@ pkgbase = ohmypsh
 	conflicts = psh
 	optdepends = ollama: local AI for the ?? oracle plugin
 	optdepends = git: branch segment in the omp prompt
-	source = ohmypsh-0.13.2.tar.gz::https://github.com/marmeladze/ohmypsh/archive/refs/tags/v0.13.2.tar.gz
+	source = ohmypsh-0.13.3.tar.gz::https://github.com/marmeladze/ohmypsh/archive/refs/tags/v0.13.3.tar.gz
 	sha256sums = db08fa0c1bcb212081891dafcdf7d42ba64e21d3e1a5788343232c76a51358ab
 
 pkgname = ohmypsh
